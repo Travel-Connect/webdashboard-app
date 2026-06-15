@@ -1,0 +1,39 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Raw data / exported reports that may contain personal or confidential data
+*.csv
+*.tsv
+*.xlsx
+*.xlsm
+*.xls
+*.zip
+*.7z
+*.rar
+downloads/
+raw/
+storage/
+exports/
+log/
+logs/
+
+# Allow intentionally sanitized fixtures only
+!fixtures/**/*.sanitized.csv
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+.turbo/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+*.backup
