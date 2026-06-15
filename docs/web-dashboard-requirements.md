@@ -128,9 +128,11 @@
 | 部屋 | `room_type_raw`, `room_type_normalized`, `budget_room_type`, `room_no` |
 | 人数 | `guest_count`, `adult_count`, `child_count` |
 | 泊数 | `nights`, `stay_night_index`, `sold_room_nights` |
-| 金額 | `gross_amount`, `tax_amount`, `net_amount`, `fee_adjusted_gross_amount` |
+| 金額 | `gross_amount`, `tax_amount`, `net_amount`, `fee_adjusted_gross_amount`, `fee_adjusted_tax_amount`, `fee_adjusted_net_amount`, `fee_adjustment_rule_id` |
 | 国籍 | `country_raw`, `country_normalized`, `country_major`, `country_middle` |
 | 集計制御 | `is_stay_night`, `is_cancelled`, `is_valid_lead_time`, `lead_time_days` |
+
+KPI の正式な計算式は `docs/kpi-definitions.md` を正とする。
 
 ## 7. ダッシュボード要件
 
@@ -302,13 +304,21 @@ AI がワンショットで実装しやすい粒度は以下。
 ## 14. 未確定事項
 
 - ねっぱんの国籍列が無いため、国籍別分析での扱い
-- 施設コードと表示施設名の正式マッピング
-- 販売可能室数、予算、エリア分類のマスタ管理方法
+- エリア分類の最終確定
 - 施設ユーザーのログイン方式
 - 手間いらずの `予約区分=キャンセル` を売上 0 として扱うか、予約ステータスのみキャンセルとして扱うか
-- 税込/税抜の基準金額を PMS 別にどこまで補正するか
+- PMS 別の補正ルールを seed 運用でどこまで初期登録するか
 
-## 15. 参考
+## 15. 補助仕様書
+
+| 文書 | 内容 |
+| --- | --- |
+| `docs/kpi-definitions.md` | KPI 計算式、丸め、Excel対応シート |
+| `docs/api-contract.md` | Dashboard/API response schema、error schema |
+| `docs/master-data-spec.md` | 施設ID一覧、seed CSV、操作権限 |
+| `docs/import-processing-spec.md` | staging、validation、冪等性、snapshot |
+
+## 16. 参考
 
 - Supabase Storage はファイル管理と private bucket/access control に利用する
 - Supabase RLS は施設別閲覧制御に利用する

@@ -12,6 +12,10 @@
 
 - `docs/web-dashboard-requirements.md`
 - `docs/web-dashboard-detail-design.md`
+- `docs/kpi-definitions.md`
+- `docs/api-contract.md`
+- `docs/master-data-spec.md`
+- `docs/import-processing-spec.md`
 
 ## Data Handling
 
