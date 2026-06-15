@@ -16,6 +16,7 @@
 - `docs/api-contract.md`
 - `docs/master-data-spec.md`
 - `docs/import-processing-spec.md`
+- `docs/claude-design-prompt.md`
 
 ## Data Handling
 
