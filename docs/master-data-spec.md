@@ -159,4 +159,6 @@ OTA/PMS別の手数料補正と税計算をコードから分離する。
 | Excel 差分検証実行 | 可 | 可 | 不可 | 不可 |
 | ユーザー権限付与 | 可 | 不可 | 不可 | 不可 |
 
+operator は `app.profile_facilities` で付与された施設だけを操作できる。全施設横断 upload/commit を許可する場合は、operator ではなく admin として付与する。
+
 service role key を使う処理は import commit、mart refresh、管理者向け seed/migration に限定する。通常の dashboard API は user session + RLS で実行する。

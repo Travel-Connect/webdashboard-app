@@ -404,7 +404,7 @@ export interface RawFileContext {
 
 - `encoding = cp932`
 - `reservation_key = 予約ID + "|" + 予約番号`
-- `current_record_key = source_system + facility + reservation_key + stay_date + room_type_normalized + 泊目`
+- `current_record_key = source_system + facility + reservation_key + stay_date + room_type_raw + room_no + 泊目`
 - `source_updated_at = 更新日`
 - `stay_date = チェックイン日 + (泊目 - 1日)`
 - `is_cancelled = 予約区分 == "キャンセル"`
@@ -573,6 +573,8 @@ grain: `facility_id + checkin_month + room_type_normalized + nights_bucket`
 #### `mart.booking_curve_monthly`
 
 grain: `facility_id + stay_month + cancel_scope`
+
+各 bucket 値は `is_valid_lead_time=true` かつ bucket 条件を満たす宿泊日の累積 `sum(sold_room_nights)` とする。予約件数・売上ではない。
 
 | column | 条件 |
 | --- | --- |
@@ -767,7 +769,12 @@ source 側で予約状態が変わる場合は、同じ `reservation_key + stay_
 - `supabase/migrations/*_create_app_schema.sql`
 - `supabase/migrations/*_create_ingest_schema.sql`
 - `supabase/migrations/*_create_mart_schema.sql`
+- staging tables migration
+- `fee_adjustment_rules` migration
+- `dashboard_snapshots` migration
+- advisory lock または `ingest.import_locks` migration
 - seed for facilities/sample mappings
+- seed CSV import script
 
 検証:
 
@@ -873,11 +880,14 @@ source 側で予約状態が変わる場合は、同じ `reservation_key + stay_
 - `/api/dashboard/room-types`
 - `/api/dashboard/annual-sales`
 - `/api/dashboard/booking-curve`
+- `docs/api-contract.md` の型に対応する Zod schema
 
 検証:
 
 - 権限がない施設は 403 または空結果
 - mart の値と API response が一致
+- `compareWith` ごとの response test
+- `facilityId=all` の admin / non-admin test
 
 ### D09 dashboard UI
 

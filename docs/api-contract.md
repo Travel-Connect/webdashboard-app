@@ -22,7 +22,21 @@ Dashboard API は mart/RPC の結果だけを返す。raw/canonical に対して
 ### 1.2 共通 response
 
 ```ts
-export type DashboardResponse<TSummary, TRow, TSeries = never> = {
+export type MetricComparison = {
+  metric: string;
+  current: number | null;
+  baseline: number | null;
+  diff: number | null;
+  rate: number | null;
+};
+
+export type DashboardComparison<TComparisonRow> = {
+  basis: "previous_year" | "budget" | "previous_snapshot";
+  metrics: MetricComparison[];
+  rows: TComparisonRow[];
+};
+
+export type DashboardResponse<TSummary, TRow, TSeries = never, TComparisonRow = TRow> = {
   filters: {
     facilityId: string | "all";
     year: number;
@@ -34,10 +48,7 @@ export type DashboardResponse<TSummary, TRow, TSeries = never> = {
   summary: TSummary;
   rows: TRow[];
   series?: TSeries[];
-  comparison?: {
-    basis: "previous_year" | "budget" | "previous_snapshot";
-    rows: unknown[];
-  };
+  comparison?: DashboardComparison<TComparisonRow> | null;
   generatedAt: string;
 };
 ```
@@ -52,6 +63,8 @@ export type ApiErrorResponse = {
       | "UNAUTHORIZED"
       | "FORBIDDEN"
       | "NOT_FOUND"
+      | "FEATURE_NOT_ENABLED"
+      | "CONFLICT"
       | "VALIDATION_ERROR"
       | "INTERNAL_ERROR";
     message: string;
@@ -66,8 +79,11 @@ export type ApiErrorResponse = {
 | 401 | 未ログイン |
 | 403 | 施設権限なし、`facilityId=all` を admin 以外が指定 |
 | 404 | 対象施設/バッチなし |
+| 409 | import lock 競合、既に commit 中 |
 | 422 | import validation error |
 | 500 | 想定外 |
+
+`compareWith=previous_snapshot` は snapshot 機能が無効な初期実装では `400 FEATURE_NOT_ENABLED` を返す。snapshot 機能が有効で対象 snapshot が存在しない場合は `comparison: null` を返す。
 
 ## 2. Dashboard Endpoints
 
@@ -215,6 +231,16 @@ type BookingCurveRow = {
 
 Uploads raw file to private Supabase Storage and creates `ingest.raw_files` + `ingest.import_batches`.
 
+Request: `multipart/form-data`
+
+| field | type | required | note |
+| --- | --- | --- | --- |
+| `file` | File | yes | raw CSV/XLSX |
+| `sourceSystem` | `minpakuin`, `neppan`, `temairazu` | yes | 取込元 |
+| `sourceFacilityCode` | string | no | PMS側施設コード。ファイル名/内容から推定できない場合は必須 |
+| `mappingProfileId` | uuid | no | 明示したい mapping profile |
+| `encoding` | string | no | 未指定なら adapter が推定 |
+
 Response:
 
 ```ts
@@ -230,6 +256,14 @@ type RawFileUploadResponse = {
 
 Creates staging rows.
 
+Request:
+
+```ts
+type ParseRequest = {
+  force?: boolean; // true の場合、既存 staging を削除して再作成する
+};
+```
+
 ```ts
 type ParseResponse = {
   batchId: string;
@@ -244,6 +278,14 @@ type ParseResponse = {
 ### 3.3 `POST /api/imports/:batchId/validate`
 
 Runs validation rules and returns blocking status.
+
+Request:
+
+```ts
+type ValidateRequest = {
+  force?: boolean; // true の場合、既存 validation issue を削除して再実行する
+};
+```
 
 ```ts
 type ValidateResponse = {
@@ -267,6 +309,17 @@ type ValidationIssue = {
 ### 3.4 `POST /api/imports/:batchId/commit`
 
 Commits staging canonical rows to `app.reservation_stay_nights`, refreshes affected marts, and records import commit metadata.
+
+Request:
+
+```ts
+type CommitRequest = {
+  dryRun?: boolean;
+  force?: boolean; // lock 競合や validation error は force しても無視しない
+};
+```
+
+Lock 取得に失敗した場合は `409 CONFLICT` として返し、commit は実行しない。
 
 ```ts
 type CommitResponse = {

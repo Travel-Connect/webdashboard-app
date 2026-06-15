@@ -48,7 +48,7 @@ raw 1行ごとの parse 結果を保持する。PII を含む raw 値は private
 | `batch_id` | uuid | import batch |
 | `raw_file_id` | uuid | raw file |
 | `raw_row_number` | integer | 1始まり |
-| `raw_payload` | jsonb | raw 1行 |
+| `raw_payload` | jsonb | raw 1行。PII を含む可能性があるため API では原則返さない |
 | `parse_status` | text | `parsed`, `warning`, `error` |
 | `parse_errors` | jsonb | parse error |
 | `created_at` | timestamptz | 作成日時 |
@@ -62,7 +62,7 @@ canonical 変換後の preview/validate 用データ。
 | `id` | uuid pk | staging canonical row |
 | `batch_id` | uuid | import batch |
 | `raw_row_numbers` | integer[] | 集約元 raw 行 |
-| `current_record_key` | text | 現在値 upsert key |
+| `current_record_key` | text | 現在値 upsert key。正規化済み表示名を含めない |
 | `history_record_key` | text | 監査/履歴 key |
 | `canonical_payload` | jsonb | canonical 予定値 |
 | `target_facility_id` | uuid | facility |
@@ -102,12 +102,14 @@ canonical は「現在値」を保持する。更新履歴は raw/staging/import
 
 | 用途 | key |
 | --- | --- |
-| canonical 現在値 | `source_system + facility_id + reservation_key + stay_date + room_type_normalized + stay_night_index` |
+| canonical 現在値 | `source_system + facility_id + reservation_key + stay_date + room_type_raw + room_no + stay_night_index` |
 | raw/staging 履歴 | `raw_file_id + raw_row_number` |
 | PMS 更新日時 | `source_updated_at` |
 | raw file 重複検知 | `content_hash + original_file_name + source_system` |
 
 `source_updated_at` は unique key に含めない。同じ予約・同じ泊目が更新された場合は、canonical の現在値を後勝ち upsert する。
+
+`room_type_normalized` と `budget_room_type` は mapping 修正で変わる可能性があるため、`current_record_key` に含めない。raw に部屋番号が無い場合は `room_no = ""` として key を作る。
 
 ## 4. ねっぱん集約ルール
 
@@ -115,7 +117,7 @@ canonical は「現在値」を保持する。更新履歴は raw/staging/import
 
 1. `reservation_key = 予約ID + "|" + 予約番号`
 2. `stay_date = チェックイン日 + (泊目 - 1日)`
-3. `current_record_key = source_system + facility_id + reservation_key + stay_date + room_type_normalized + stay_night_index`
+3. `current_record_key = source_system + facility_id + reservation_key + stay_date + room_type_raw + room_no + stay_night_index`
 4. 同一 `current_record_key` の raw 行を集約
 5. `gross_amount = sum(大人合計額 + 子供合計額 + 幼児合計額 + その他合計額)`
 6. `reservation_total_amount = 料金合計額` は検算用
@@ -135,7 +137,21 @@ canonical は「現在値」を保持する。更新履歴は raw/staging/import
 | `AMOUNT_TOTAL_MISMATCH` | warning | 泊目別合計と予約総額が不一致 |
 | `LEAD_TIME_INVALID` | warning | `lead_time_days < 0` または booked_at 欠損 |
 
-## 6. Snapshot
+## 6. PII handling
+
+raw file と staging には氏名、電話番号、住所、メールアドレスなどの個人情報が含まれる可能性がある。canonical、mart、Dashboard API には分析に不要な PII を保存・返却しない。
+
+| 項目 | 方針 |
+| --- | --- |
+| `ingest.staging_rows.raw_payload` | DB 内には保持するが、取得 API では admin/operator のみに限定する |
+| preview API | PII field を返さない。必要な場合も `***` でマスクする |
+| validation error | PII field の値を message/details に含めない |
+| application logs | raw row、raw payload、PII field value を出力しない |
+| retention | `committed` から 30 日後に staging rows を purge 可能にする |
+| manual purge | `raw_file_id` または `batch_id` 単位で管理者が staging/raw metadata を削除できるようにする |
+| backup | DB backup のアクセス権は管理者に限定する |
+
+## 7. Snapshot
 
 `compareWith=previous_snapshot` を実装する場合は `mart.dashboard_snapshots` を使う。
 
@@ -149,9 +165,11 @@ canonical は「現在値」を保持する。更新履歴は raw/staging/import
 | `target_month` | date | 対象月 |
 | `payload` | jsonb | 集計済み値 |
 
-作成タイミングは毎日早朝の取込・mart refresh 完了後とする。初期実装では snapshot 比較を UI 非表示にしてもよいが、API query として残す場合はこの table を実装する。
+作成タイミングは毎日早朝の取込・mart refresh 完了後とする。
 
-## 7. mart refresh lock
+初期実装で snapshot を有効化しない場合、`compareWith=previous_snapshot` は `400 FEATURE_NOT_ENABLED` を返す。snapshot table を実装済みで対象 snapshot が無い場合は、`comparison` を `null` とし、通常の current response は返す。
+
+## 8. mart refresh lock
 
 同一施設・同一月に対する commit は同時実行しない。実装方法は以下のいずれか。
 

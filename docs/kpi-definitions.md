@@ -71,10 +71,21 @@ Excel 対応シート: `国籍別分析(NEW)`。
 
 泊数分布は予約単位で集約してから作成する。チェックイン月基準とし、同じ予約が月を跨ぐ場合でもチェックイン月に寄せる。
 
+予約単位集約の grain は `facility_id + reservation_key + checkin_date + room_type_raw` とする。`room_type_normalized` は集計表示属性であり、予約単位集約の同一性判定には使わない。
+
+予約単位指標は以下で作る。
+
+| field | definition |
+| --- | --- |
+| `reservation_room_count` | 同一予約・同一部屋タイプ内の `max(sold_room_nights)` |
+| `sold_room_nights` | `reservation_room_count * nights` |
+| `guest_count` | 同一予約・同一部屋タイプ内の代表値。日別行を sum しない |
+| `room_revenue` | 同一予約・同一部屋タイプの宿泊日別 `fee_adjusted_*` を sum |
+
 | KPI | 表示名 | 式 | 粒度 |
 | --- | --- | --- | --- |
 | `reservation_count` | 予約件数 | 予約数 | 施設+チェックイン月+泊数バケット |
-| `sold_room_nights` | 販売室数 | `sum(nights * room_count)` または canonical 由来の室泊数 | 施設+チェックイン月+泊数バケット |
+| `sold_room_nights` | 販売室数 | 予約単位集約後の `sum(reservation_room_count * nights)` | 施設+チェックイン月+泊数バケット |
 | `guest_count` | 合計人数 | 予約単位人数合計 | 施設+チェックイン月+泊数バケット |
 | `room_revenue` | 売上 | 税表示に応じた補正後金額合計 | 施設+チェックイン月+泊数バケット |
 | `average_nights` | 平均泊数 | `sold_room_nights / reservation_count` | 施設+チェックイン月 |
@@ -120,6 +131,15 @@ Excel 対応シート: `全施設年間売上`, `全施設年間予算`。
 ## 8. ブッキングカーブ
 
 `lead_time_days = stay_date - booked_at::date` とする。`lead_time_days >= 0` の行だけを対象にする。
+
+各 bucket の値は、条件を満たす宿泊日の累積 `sum(sold_room_nights)` とする。予約件数や売上ではない。
+
+共通条件:
+
+- `is_stay_night = true`
+- `is_valid_lead_time = true`
+- `cancel_scope = without_cancelled` の場合は `is_cancelled = false`
+- bucket は範囲別ではなく累積値
 
 | bucket | 条件 |
 | --- | --- |
