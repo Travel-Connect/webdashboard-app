@@ -1,13 +1,14 @@
-# 宿泊BIダッシュボード（コルディオグループ）実装実行計画書
+# トラベルコネクト 宿泊BIダッシュボード 実装実行計画書
 
-ステータス: ビジュアルデザイン完成後 / アプリ本体未着手 / 一次資料（プロトタイプ精読）+ 横断分析 4 本 統合版
+ステータス: バックエンド基盤実装済み（M0 / M10-M12, ブランチ `feat/backend-foundation`）/ ビジュアルデザイン確定済 / 一次資料（プロトタイプ精読）+ 横断分析 4 本 統合版
 前提: 日本語UI / JPY / Asia/Tokyo / Next.js App Router + TypeScript + Tailwind + lucide-react + Supabase(Auth/Postgres/Storage/RLS) + Vercel
 
 ---
 
 ## 1. エグゼクティブサマリ
 
-- **何を作るか**: コルディオグループ（沖縄の宿泊施設群）向け宿泊BIダッシュボード。既存コルディオ Excel レポートを Web 化し、稼働・経路・国籍・泊数・部屋タイプ・全施設年間売上・ブッキングカーブの 8 分析画面＋取込/検証/マスタ/権限/設定の運用画面を、ロール別 RLS 制御で提供する。
+- **何を作るか**: トラベルコネクト（Travel-Connect）が契約施設向けに提供する宿泊BIダッシュボード。複数 PMS/OTA（minpakuIN・ねっぱん・手間いらず）の予約データを共通テンプレートへ正規化し、稼働・経路・国籍・泊数・部屋タイプ・全施設年間売上・ブッキングカーブの 8 分析画面＋取込/検証/マスタ/権限/設定の運用画面を、施設別 RLS 制御で提供する。**マルチPMS対応は後付けではなく必須要件**：ねっぱん・手間いらずを使う契約施設も同じダッシュボードで同等に分析できることを前提に設計する。
+- **データ範囲（現状）**: 実データは当面 **コルディオの沖縄施設群（minpakuIN 経由・37施設）に限定**。既存のコルディオ Excel レポートは Web 化対象であり、かつ当面の数値再現・検証の基準（parity の正）として用いる。ねっぱん（実サンプル: コテージスターハウス今帰仁）・手間いらず（実サンプル: 8223…csv）の契約施設は順次追加する。
 - **リポジトリ現状**: `C:\dev\webdashboard-app` は `.git` / `README.md` / `.gitignore` / `docs/` のみで、Next.js アプリ本体は未生成。詳細設計（D01-D11）・要件（R01-R11）・api-contract / kpi-definitions / master-data-spec / import-processing-spec / claude-design-prompt の各仕様は `docs/` に揃っている。
 - **プロトタイプが提供したもの**: `docs/webdashboard-app2/project/app/` 配下に Claude Design 出力の HTML+JSX(Babel standalone) モック。デザイントークン（`tokens.css`）、共通プリミティブ 12 種（`ui.jsx`）、AppShell/SidebarNav/HeaderFilterBar（`shell.jsx`/`appshell.jsx`）、自前 SVG チャート 4 種（`charts.jsx`）、実データ駆動の作り込み済み画面（稼働・経路・国籍・泊数・部屋タイプ・全施設年間・ブッキングカーブ）、運用系 9 ルートのプレースホルダ（`RoadmapScreen`）。
 - **本計画の方針**: (1) プロトの**視覚出力のみを再現**し内部構造（`window`グローバル/Babel/自前switch/`/1.1`税抜ハードコード）は移植しない（README 指示）。(2) 既存 D01-D11 を捨てず、デザイン確定を踏まえ **M0-M22 に再分解・並べ替え**。(3) **API契約凍結 → フロント先行（mock adapter）→ バックエンド差し込み**のハイブリッドで、`lib/dashboard/client.ts` の fetcher 1 点で mock↔live を切替える。(4) `.env.local` は新規作成のみ・以後不可侵、PW/Token/PII を成果物・ログ・モックに出さない。
