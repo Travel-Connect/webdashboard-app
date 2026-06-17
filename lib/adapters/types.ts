@@ -81,7 +81,10 @@ export interface ImportAdapter {
   sourceSystem: SourceSystem;
   detect(input: RawFileContext): Promise<boolean>;
   parse(input: RawFileContext): Promise<ParsedSourceRows>;
-  validate(rows: ParsedSourceRows): Promise<ValidationResult>;
+  validate(
+    rows: ParsedSourceRows,
+    context: NormalizeContext,
+  ): Promise<ValidationResult>;
   normalize(
     rows: ParsedSourceRows,
     context: NormalizeContext,
