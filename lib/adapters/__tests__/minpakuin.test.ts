@@ -100,15 +100,17 @@ describe("normalize: 基本ルール", () => {
     expect(row.currentRecordKey).toContain("CHK99");
   });
 
-  it("集約: 同一(予約,利用日,部屋タイプ)の複数室は SUM", () => {
+  it("複数室(同一予約・利用日・部屋タイプ)は集約せず別行・各 sold=1（合計室数=行数）", () => {
     const rows = build([
       { [C.facilityName]: "アクアパレス北谷", [C.otaReservationNo]: "OTA5", [C.stayDate]: "2026/06/15", [C.checkoutDate]: "2026/06/16", [C.roomType]: "A", [C.guestCount]: "2", [C.channel]: "楽天", [C.gross]: "11000", [C.tax]: "1000", [C.status]: "予約確定" },
       { [C.facilityName]: "アクアパレス北谷", [C.otaReservationNo]: "OTA5", [C.stayDate]: "2026/06/15", [C.checkoutDate]: "2026/06/16", [C.roomType]: "A", [C.guestCount]: "2", [C.channel]: "楽天", [C.gross]: "11000", [C.tax]: "1000", [C.status]: "予約確定" },
     ]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].soldRoomNights).toBe(2);
-    expect(rows[0].grossAmount).toBe(22000);
-    expect(rows[0].guestCount).toBe(4);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.soldRoomNights === 1)).toBe(true);
+    expect(rows.reduce((s, r) => s + r.soldRoomNights, 0)).toBe(2); // 室数=行数
+    expect(rows.reduce((s, r) => s + (r.grossAmount ?? 0), 0)).toBe(22000);
+    expect(rows.every((r) => r.guestCount === 2)).toBe(true); // 各行の値を保持（合算しない）
+    expect(new Set(rows.map((r) => r.currentRecordKey)).size).toBe(2); // 連番でキー重複なし
   });
 });
 

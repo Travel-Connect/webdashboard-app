@@ -173,30 +173,25 @@ function toIntermediate(
   };
 }
 
-/** ParsedSourceRows → canonical（同一キーは SUM 集約 = 室数/金額の積み上げ） */
+/**
+ * ParsedSourceRows → canonical。minpakuIN は 1行=1室泊（sold_room_nights=1）。
+ * 集約せず1行ずつ canonical 化し、予約受付日・合計人数など「行ごとの属性」を保持する。
+ * base.csv は同一(予約・利用日・部屋)に親子判別=0行/キャンセル重複行/受付日違いの
+ * 修正行などを別行で持ち、create_report.py はそれらを行単位で集計するため、集約すると
+ * 予約受付日(ブッキングカーブ)や合計人数(泊数分布)が一致しない。完全重複行は連番(seq)で区別。
+ * 室数は SUM(sold_room_nights)=行数 で求まる（COUNT(*) と一致）。
+ */
 export function buildCanonicalRows(
   parsed: ParsedSourceRows,
   ctx: NormalizeContext,
 ): CanonicalStayNight[] {
-  const groups = new Map<string, Intermediate>();
+  const seq = new Map<string, number>();
+  const out: CanonicalStayNight[] = [];
   for (const row of parsed.rows) {
     const im = toIntermediate(row.payload, row.rawRowNumber, ctx);
     if (!im) continue;
-    const existing = groups.get(im.key);
-    if (!existing) {
-      groups.set(im.key, im);
-    } else {
-      existing.rawGross += im.rawGross;
-      existing.rawTax += im.rawTax;
-      existing.feeGross += im.feeGross;
-      existing.guestCount += im.guestCount;
-      existing.soldRoomNights += im.soldRoomNights;
-      existing.rawRowNumbers.push(...im.rawRowNumbers);
-    }
-  }
-
-  const out: CanonicalStayNight[] = [];
-  for (const im of groups.values()) {
+    const n = seq.get(im.key) ?? 0;
+    seq.set(im.key, n + 1);
     const netAmount = im.rawGross - im.rawTax;
 
     const roomType = ctx.resolveRoomType({
@@ -211,7 +206,7 @@ export function buildCanonicalRows(
 
     out.push({
       sourceSystem: SOURCE,
-      currentRecordKey: im.key,
+      currentRecordKey: `${im.key}|${n}`,
       facilityId: im.facilityId,
       reservationKey: im.reservationKey,
       checkinCode: im.checkinCode,
