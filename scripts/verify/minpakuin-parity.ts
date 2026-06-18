@@ -26,6 +26,8 @@ const BASE = process.argv[2] ??
   "C:\\Users\\tckam\\OneDrive - トラベルコネクト\\005.レポート\\コルディオグループ\\全施設レポート\\コルディオグループレポートNEW\\minpakuIN-download\\base.csv";
 const XLSXP = process.argv[3] ??
   "C:\\Users\\tckam\\OneDrive - トラベルコネクト\\005.レポート\\コルディオグループ\\全施設レポート\\コルディオグループレポートNEW\\集計データ.xlsx";
+const CLASSIFY = process.argv[4] ??
+  "C:\\Users\\tckam\\OneDrive - トラベルコネクト\\005.レポート\\コルディオグループ\\全施設レポート\\コルディオグループレポートNEW\\minpakuIN-download\\国分類リスト.xlsx";
 
 const AQUA_PALACE_FACILITY_MAP: Record<string, string> = {
   "【別邸】結の家 Ⅰ": "結の家",
@@ -118,6 +120,85 @@ function sheetAgg(wb: XLSX.WorkBook, name: string, keyCols: string[], metricCol:
   return out;
 }
 
+// 任意キー関数でシートを集計
+function sheetAggK(wb: XLSX.WorkBook, name: string, metricCol: string, keyFn: (r: unknown[], idx: (n: string) => number) => string | null) {
+  const { header, rows } = readSheet(wb, name);
+  const idx = (n: string) => header.indexOf(n);
+  const out: Row = {};
+  for (const r of rows) {
+    const k = keyFn(r, idx);
+    if (k == null) continue;
+    add(out, k, Number(r[idx(metricCol)]) || 0);
+  }
+  return out;
+}
+
+// 月別×国籍別 3シート（国分類リスト.xlsx で (施設, 国)→(大分類,中分類) を引く）
+function nationality(canon: CanonicalStayNight[], wb: XLSX.WorkBook) {
+  const lwb = XLSX.readFile(CLASSIFY);
+  const ls = lwb.Sheets[lwb.SheetNames[0]];
+  const lrows = XLSX.utils.sheet_to_json<unknown[]>(ls, { header: 1, raw: true });
+  const lh = (lrows[0] as string[]).map((s) => String(s).trim());
+  const li = (n: string) => lh.indexOf(n);
+  const lookup = new Map<string, { major: string; middle: string }>();
+  for (const r of lrows.slice(1)) {
+    const fnRaw = String(r[li("施設名")] ?? "").trim();
+    const kuni = String(r[li("国")] ?? "").trim();
+    if (!fnRaw || !kuni) continue;
+    const fac = FACILITY_RENAME_MAP[fnRaw] ?? fnRaw; // create_report は分類側にも rename を適用
+    lookup.set(`${fac}|${kuni}`, { major: String(r[li("大分類")] ?? "").trim() || "不明", middle: String(r[li("中分類")] ?? "").trim() || "不明" });
+  }
+  const kuniOf = (c: CanonicalStayNight) => (c.countryRaw ?? "").trim() || "不明";
+  const classify = (fac: string, kuni: string) => (!kuni || kuni === "不明" ? { major: "不明", middle: "不明" } : lookup.get(`${fac}|${kuni}`) ?? { major: "不明", middle: "不明" });
+  const natKey = (c: CanonicalStayNight) => { const kuni = kuniOf(c); const cl = classify(c.facilityId, kuni); return `${c.facilityId}|${cl.major}|${cl.middle}|${kuni}|${c.stayMonth}`; };
+
+  const rooms: Row = {}, guests: Row = {}, gross: Row = {}, tax: Row = {};
+  for (const c of canon) {
+    if (c.isStayNight && !c.isCancelled) { add(rooms, natKey(c), c.soldRoomNights); add(guests, natKey(c), c.guestCount ?? 0); }
+    const g = c.feeAdjustedGrossAmount ?? 0;
+    if (g !== 0 && !c.isCancelled) { add(gross, natKey(c), g); add(tax, natKey(c), c.taxAmount ?? 0); }
+  }
+  const sk = (r: unknown[], idx: (n: string) => number, monthCol: string) => `${r[idx("施設名")]}|${r[idx("大分類")]}|${r[idx("中分類")]}|${r[idx("国")]}|${serialToYmd(Number(r[idx(monthCol)]))}`;
+  compare("国籍別 室数", rooms, sheetAggK(wb, "月別×国籍別(室数・人数)", "室数", (r, i) => sk(r, i, "月の開始日")));
+  compare("国籍別 人数", guests, sheetAggK(wb, "月別×国籍別(室数・人数)", "合計人数", (r, i) => sk(r, i, "月の開始日")));
+  compare("国籍別 宿泊費", gross, sheetAggK(wb, "月別×国籍別(金額)", "宿泊費", (r, i) => sk(r, i, "月の開始日")));
+  compare("国籍別 消費税", tax, sheetAggK(wb, "月別×国籍別(金額)", "消費税", (r, i) => sk(r, i, "月の開始日")));
+
+  // 予約指標（予約単位: 施設×予約キー×部屋タイプ。月内泊数・連泊・リードタイム）
+  interface R { checkin: string; booked: string | null; multiNight: number; }
+  const resv = new Map<string, R>();
+  interface M { facility: string; gkey: string; kuni: string; month: string; monthNights: number; monthGuests: number }
+  const monthly = new Map<string, M>();
+  for (const c of canon) {
+    if (c.isCancelled || !c.isStayNight) continue;
+    if ((c.nights ?? 0) <= 0) continue;
+    const gkey = `${c.facilityId}|${c.reservationKey}|${c.roomTypeRaw ?? ""}`;
+    const r = resv.get(gkey);
+    if (!r) resv.set(gkey, { checkin: c.stayDate, booked: c.bookedAt ?? null, multiNight: (c.nights ?? 0) >= 2 ? 1 : 0 });
+    else { if (c.stayDate < r.checkin) r.checkin = c.stayDate; if (c.bookedAt && (!r.booked || c.bookedAt < r.booked)) r.booked = c.bookedAt; }
+    const mkey = `${gkey}|${kuniOf(c)}|${c.stayMonth}`;
+    const m = monthly.get(mkey);
+    if (!m) monthly.set(mkey, { facility: c.facilityId, gkey, kuni: kuniOf(c), month: c.stayMonth, monthNights: 1, monthGuests: c.guestCount ?? 0 });
+    else { m.monthNights += 1; m.monthGuests += c.guestCount ?? 0; }
+  }
+  const cnt: Row = {}, gst: Row = {}, multi: Row = {}, mnights: Row = {}, ltCnt: Row = {}, ltSum: Row = {};
+  for (const m of monthly.values()) {
+    const r = resv.get(m.gkey)!;
+    const lead = r.booked ? dayDiff(r.checkin, r.booked.slice(0, 10)) : null; // checkin - booked(date)
+    const leadValid = lead != null && lead >= 0 ? 1 : 0;
+    const cl = classify(m.facility, m.kuni);
+    const k = `${m.facility}|${cl.major}|${cl.middle}|${m.kuni}|${m.month}`;
+    add(cnt, k, 1); add(gst, k, m.monthGuests); add(multi, k, r.multiNight);
+    add(mnights, k, m.monthNights); add(ltCnt, k, leadValid); add(ltSum, k, leadValid ? lead! : 0);
+  }
+  compare("国籍別 予約件数", cnt, sheetAggK(wb, "月別×国籍別(予約指標)", "予約件数", (r, i) => sk(r, i, "月の開始日")));
+  compare("国籍別 予約指標人数", gst, sheetAggK(wb, "月別×国籍別(予約指標)", "合計人数", (r, i) => sk(r, i, "月の開始日")));
+  compare("国籍別 連泊予約件数", multi, sheetAggK(wb, "月別×国籍別(予約指標)", "連泊予約件数", (r, i) => sk(r, i, "月の開始日")));
+  compare("国籍別 月内泊数", mnights, sheetAggK(wb, "月別×国籍別(予約指標)", "月内泊数", (r, i) => sk(r, i, "月の開始日")));
+  compare("国籍別 LT対象件数", ltCnt, sheetAggK(wb, "月別×国籍別(予約指標)", "リードタイム対象予約件数", (r, i) => sk(r, i, "月の開始日")));
+  compare("国籍別 LT合計", ltSum, sheetAggK(wb, "月別×国籍別(予約指標)", "リードタイム合計", (r, i) => sk(r, i, "月の開始日")));
+}
+
 function main() {
   console.log("base.csv:", BASE);
   const text = decodeUtf8(new Uint8Array(readFileSync(BASE)));
@@ -165,6 +246,10 @@ function main() {
   // ---- ブッキングカーブ ----
   console.log("[ブッキングカーブ]（リードタイム累積・室数）");
   bookingCurve(canon, parsed, wb);
+
+  // ---- 月別×国籍別 ----
+  console.log("[月別×国籍別]（国分類リスト.xlsx 使用）");
+  nationality(canon, wb);
 
   console.log(`\n結果: ✅${totalPass} / ❌${totalFail}`);
 }
