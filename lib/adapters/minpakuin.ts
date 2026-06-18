@@ -49,6 +49,7 @@ export const MINPAKU_COLUMNS = {
   channel: "予約経路",
   tax: "消費税",
   gross: "宿泊費",
+  roomNo: "部屋番号",
   status: "ステータス",
   country: "国",
 } as const;
@@ -93,11 +94,14 @@ interface Intermediate {
   checkoutDate: string | null;
   bookedYmd: string | null;
   roomTypeRaw: string;
+  roomNo: string;
   nights: number | null;
   countryRaw: string;
-  // 加算対象
+  feeRuleId: string | null;
+  // 加算対象（手数料補正は create_report.py と同じく「行ごとに補正→合算」）
   rawGross: number;
   rawTax: number;
+  feeGross: number;
   guestCount: number;
   soldRoomNights: number;
   rawRowNumbers: number[];
@@ -124,28 +128,45 @@ function toIntermediate(
   if (!reservationKey) return null;
 
   const roomTypeRaw = payload[C.roomType] ?? "";
+  const roomNo = (payload[C.roomNo] ?? "").trim();
   const checkoutDate = parseDate(payload[C.checkoutDate]);
   const status = payload[C.status] ?? "";
+  const isCancelled = status === CANCELLED_STATUS;
   const bookedYmd = parseDate(payload[C.bookedAt]);
 
+  // 手数料補正は「行ごとに round(宿泊費/divisor)」（create_report.py:202,210 と同粒度）。
+  const channelRaw = payload[C.channel] ?? "";
+  const channel = ctx.resolveChannel({ sourceSystem: SOURCE, channelRaw });
+  const channelNormalized = channel?.channelNormalized ?? (channelRaw || null);
+  const rule = pickFeeRule(ctx.feeRules, { sourceSystem: SOURCE, channelNormalized, stayDate });
+  const rawGross = toNumOr0(payload[C.gross]);
+  const rawTax = toNumOr0(payload[C.tax]);
+  const fee = applyFeeAdjustment(rawGross, rawTax, rule);
+
   return {
-    key: [SOURCE, facilityId, reservationKey, stayDate, roomTypeRaw, "", ""].join("|"),
+    // checkoutDate と キャンセルフラグ を key に含める: base.csv は同一(予約,利用日,部屋,タイプ)に
+    // 親子判別=0 のチェックアウト日行や キャンセル済みの重複行 を別行で持つため、これらを分離して
+    // 集約しないと create_report.py の行単位カウント（status/親子判別でのフィルタ）と一致しない。
+    key: [SOURCE, facilityId, reservationKey, stayDate, roomTypeRaw, roomNo, checkoutDate ?? "", isCancelled ? "C" : ""].join("|"),
     facilityId,
     reservationKey,
     checkinCode: checkin || null,
     otaReservationNo: ota || null,
     status,
-    isCancelled: status === CANCELLED_STATUS,
-    channelRaw: payload[C.channel] ?? "",
+    isCancelled,
+    channelRaw,
     stayDate,
     stayMonth: monthStart(stayDate),
     checkoutDate,
     bookedYmd,
     roomTypeRaw,
+    roomNo,
     nights: isBlank(payload[C.nights]) ? null : Math.trunc(toNumOr0(payload[C.nights])),
     countryRaw: payload[C.country] ?? "",
-    rawGross: toNumOr0(payload[C.gross]),
-    rawTax: toNumOr0(payload[C.tax]),
+    feeRuleId: fee.ruleId,
+    rawGross,
+    rawTax,
+    feeGross: fee.grossAmount,
     guestCount: Math.trunc(toNumOr0(payload[C.guestCount])),
     soldRoomNights: 1,
     rawRowNumbers: [rawRowNumber],
@@ -167,6 +188,7 @@ export function buildCanonicalRows(
     } else {
       existing.rawGross += im.rawGross;
       existing.rawTax += im.rawTax;
+      existing.feeGross += im.feeGross;
       existing.guestCount += im.guestCount;
       existing.soldRoomNights += im.soldRoomNights;
       existing.rawRowNumbers.push(...im.rawRowNumbers);
@@ -175,14 +197,6 @@ export function buildCanonicalRows(
 
   const out: CanonicalStayNight[] = [];
   for (const im of groups.values()) {
-    const channel = ctx.resolveChannel({ sourceSystem: SOURCE, channelRaw: im.channelRaw });
-    const channelNormalized = channel?.channelNormalized ?? (im.channelRaw || null);
-    const rule = pickFeeRule(ctx.feeRules, {
-      sourceSystem: SOURCE,
-      channelNormalized,
-      stayDate: im.stayDate,
-    });
-    const fee = applyFeeAdjustment(im.rawGross, im.rawTax, rule);
     const netAmount = im.rawGross - im.rawTax;
 
     const roomType = ctx.resolveRoomType({
@@ -213,7 +227,7 @@ export function buildCanonicalRows(
       roomTypeRaw: im.roomTypeRaw,
       roomTypeNormalized: roomType?.roomTypeNormalized ?? null,
       budgetRoomType: roomType?.budgetRoomType ?? null,
-      roomNo: "",
+      roomNo: im.roomNo,
       nights: im.nights,
       stayNightIndex: null,
       soldRoomNights: im.soldRoomNights,
@@ -223,10 +237,10 @@ export function buildCanonicalRows(
       grossAmount: im.rawGross,
       taxAmount: im.rawTax,
       netAmount,
-      feeAdjustedGrossAmount: fee.grossAmount,
-      feeAdjustedTaxAmount: fee.taxAmount,
-      feeAdjustedNetAmount: fee.netAmount,
-      feeAdjustmentRuleId: fee.ruleId,
+      feeAdjustedGrossAmount: im.feeGross,
+      feeAdjustedTaxAmount: im.rawTax,
+      feeAdjustedNetAmount: im.feeGross - im.rawTax,
+      feeAdjustmentRuleId: im.feeRuleId,
       countryRaw: im.countryRaw || null,
       countryNormalized: country?.countryNormalized ?? (im.countryRaw || "不明"),
       countryMajor: country?.countryMajor ?? "不明",

@@ -112,13 +112,41 @@ describe("normalize: 基本ルール", () => {
   });
 });
 
-describe("normalize: 手数料補正（ASSUMPTION:FEE_TAX_SPLIT — create_report.py で要確認）", () => {
-  it("Agoda 2026-01-01 以降は /0.88", () => {
-    const [row] = build([{ [C.facilityName]: "アクアパレス北谷", [C.otaReservationNo]: "AG1", [C.stayDate]: "2026/06/15", [C.checkoutDate]: "2026/06/16", [C.roomType]: "A", [C.channel]: "[海外]Agoda", [C.gross]: "8800", [C.tax]: "800", [C.status]: "予約確定" }]);
+describe("normalize: 行分離（create_report.py 行単位カウント一致）", () => {
+  it("同一(予約/利用日/部屋)でも キャンセル済み重複行は アクティブ行と集約しない", () => {
+    const rows = build([
+      { [C.facilityName]: "アクアパレス北谷", [C.otaReservationNo]: "DUP1", [C.stayDate]: "2026/07/03", [C.checkoutDate]: "2026/07/05", [C.roomType]: "A", [C.gross]: "20000", [C.tax]: "1818", [C.status]: "予約確定" },
+      { [C.facilityName]: "アクアパレス北谷", [C.otaReservationNo]: "DUP1", [C.stayDate]: "2026/07/03", [C.checkoutDate]: "2026/07/05", [C.roomType]: "A", [C.gross]: "20000", [C.tax]: "1818", [C.status]: "キャンセル済み" },
+    ]);
+    expect(rows).toHaveLength(2);
+    const active = rows.filter((r) => !r.isCancelled);
+    const cancelled = rows.filter((r) => r.isCancelled);
+    expect(active).toHaveLength(1);
+    expect(active[0].soldRoomNights).toBe(1); // アクティブ室数=1（キャンセルを足し込まない）
+    expect(cancelled).toHaveLength(1);
+    expect(cancelled[0].soldRoomNights).toBe(1);
+  });
+
+  it("チェックアウト日行(利用日==CO日, 親子判別=0)は stay 行と分離され is_stay_night=false", () => {
+    const rows = build([
+      { [C.facilityName]: "アクアパレス北谷", [C.otaReservationNo]: "CO1", [C.stayDate]: "2026/07/03", [C.checkoutDate]: "2026/07/04", [C.roomType]: "A", [C.gross]: "10000", [C.tax]: "909", [C.status]: "予約確定" },
+      { [C.facilityName]: "アクアパレス北谷", [C.otaReservationNo]: "CO1", [C.stayDate]: "2026/07/04", [C.checkoutDate]: "2026/07/04", [C.roomType]: "A", [C.gross]: "0", [C.tax]: "0", [C.status]: "予約確定" },
+    ]);
+    const stay = rows.filter((r) => r.isStayNight);
+    const checkout = rows.filter((r) => !r.isStayNight);
+    expect(stay).toHaveLength(1);
+    expect(checkout).toHaveLength(1);
+    expect(checkout[0].stayDate).toBe("2026-07-04");
+  });
+});
+
+describe("normalize: 手数料補正（create_report.py:196-210 検証済 — 宿泊費のみ割戻し、消費税は不変）", () => {
+  it("Agoda 2026-01-01 以降は宿泊費/0.88（消費税は不変）", () => {
+    const [row] = build([{ [C.facilityName]: "アクアパレス北谷", [C.otaReservationNo]: "AG1", [C.stayDate]: "2026/06/15", [C.checkoutDate]: "2026/06/16", [C.roomType]: "A", [C.channel]: "Agoda", [C.gross]: "8800", [C.tax]: "800", [C.status]: "予約確定" }]);
     expect(row.grossAmount).toBe(8800); // 補正前は raw
     expect(row.feeAdjustedGrossAmount).toBe(10000); // round(8800/0.88)
-    expect(row.feeAdjustedTaxAmount).toBe(909); // round(800/0.88)
-    expect(row.feeAdjustedNetAmount).toBe(9091);
+    expect(row.feeAdjustedTaxAmount).toBe(800); // 消費税は補正しない
+    expect(row.feeAdjustedNetAmount).toBe(9200); // 10000 - 800
     expect(row.feeAdjustmentRuleId).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
   });
 

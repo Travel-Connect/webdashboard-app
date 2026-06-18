@@ -147,6 +147,16 @@ export function toNumOr0(s: string | undefined | null): number {
 }
 
 // ---- 手数料補正・税 ----------------------------------------------------
+/** numpy/pandas .round() 互換の round-half-to-even（偶数丸め）。
+ *  create_report.py の `(宿泊費/0.88).round()` と一致させるために使う。 */
+export function roundHalfEven(x: number): number {
+  const floor = Math.floor(x);
+  const frac = x - floor;
+  if (frac < 0.5) return floor;
+  if (frac > 0.5) return floor + 1;
+  return floor % 2 === 0 ? floor : floor + 1; // ちょうど .5 → 偶数側
+}
+
 /** 税込総額から消費税を逆算（税率 r、既定 floor） */
 export function reverseTax(gross: number, rate = 0.1, rounding: "floor" | "round" | "ceil" = "floor"): number {
   const raw = (gross * rate) / (1 + rate);
@@ -188,14 +198,14 @@ export interface FeeAdjusted {
 /**
  * 手数料補正後の税込/税額/税抜を算出。
  *
- * 規約:
+ * 規約（create_report.py:196-210 で検証済）:
  *   fee_adjusted_gross = round(gross / gross_divisor)
- *   fee_adjusted_tax   = round(tax  / gross_divisor)   ← 税も同率で割り戻す
- *   fee_adjusted_net   = fee_adjusted_gross - fee_adjusted_tax
+ *   fee_adjusted_tax   = tax              ← 消費税は補正しない（宿泊費のみ割り戻す）
+ *   fee_adjusted_net   = fee_adjusted_gross - tax
  *
- * gross_divisor=1（補正なし）なら入力税込/税額をそのまま使う。
- * ⚠️ 補正チャネル(Agoda/Trip.com)での税の割戻し方・丸めは create_report.py 未確認。
- *    暫定実装。base.csv + create_report.py で要検証（コード内 ASSUMPTION:FEE_TAX_SPLIT）。
+ * create_report.py は `df["宿泊費"] = (宿泊費 / 0.88).round()` のように宿泊費だけを
+ * 上書きし、消費税列には一切手を加えない。税抜は「補正後宿泊費 - 生消費税」。
+ * gross_divisor=1（補正なし）なら入力をそのまま使う。
  */
 export function applyFeeAdjustment(
   rawGross: number,
@@ -205,7 +215,6 @@ export function applyFeeAdjustment(
   if (!rule || rule.grossDivisor === 1) {
     return { grossAmount: rawGross, taxAmount: rawTax, netAmount: rawGross - rawTax, ruleId: rule?.id ?? null };
   }
-  const gross = Math.round(rawGross / rule.grossDivisor);
-  const tax = Math.round(rawTax / rule.grossDivisor); // ASSUMPTION:FEE_TAX_SPLIT
-  return { grossAmount: gross, taxAmount: tax, netAmount: gross - tax, ruleId: rule.id ?? null };
+  const gross = roundHalfEven(rawGross / rule.grossDivisor); // pandas .round() 互換
+  return { grossAmount: gross, taxAmount: rawTax, netAmount: gross - rawTax, ruleId: rule.id ?? null };
 }
