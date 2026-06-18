@@ -92,4 +92,17 @@ base.csv の施設名は16種。create_report は前処理で以下を行う。
 ## 8. 生成済み seed
 - `supabase/seed/country_mappings.csv`（103国・確定）
 - `supabase/seed/channel_mappings.csv`（33経路・channel_group は要レビュー）
-- 施設系（facilities / source_facilities / room_type_mappings の分割・予算）は §4.5 の施設名確定後に作成。
+- `supabase/seed.sql` に minpakuIN 施設マスタを追記（**DRAFT・要レビュー**、方針=base.csv名を正）:
+  - 分割/新規4施設（elsinn_naha / chatanhills / yuinoie / aquapalace_annex）
+  - 表示名を base.csv 準拠に更新（Canpou/壼屋/古宇利島/今泊/ジャーガル、**rusin=琉心 プライベートプール 恩納 は要確認**）
+  - source_facilities（16 base名→施設コード、琉心系は rusin に統合）
+  - room_type_mappings（分割3行・`override_facility_id` で施設振替、budget=分割後施設名）
+- `supabase/migrations/20260618120000_room_type_override_facility.sql`（`override_facility_id` 追加）
+
+### 8.1 予算部屋タイプの簡略化（検証）
+create_report の `BUDGET_TYPE_MAP` 5エントリは全て「分割後施設名」と一致する（プレミアム系→アクアパレス北谷、結の家系→結の家、クローバー→ANNEX）。よって **budget_room_type = 実施設の表示名** で導出でき、個別の予算マッピング行は不要。
+
+### 8.2 未実装（後続）
+- DB ランタイム検証（`supabase db reset`）— Docker/CLI 未導入のため未実施。SQL は目視レビューのみ。
+- production resolver（source_facilities / room_type override / channel / country を引く実装）は取込パイプライン（M18）で。adapter ロジック自体は検証済み。
+- area_name（北谷/北部/那覇/沖縄市）の補完。channel_group のレビュー。`部屋タイプ(予算表用)` 列の parity 突合（金額/室数は ±0 検証済だが予算列は未突合）。

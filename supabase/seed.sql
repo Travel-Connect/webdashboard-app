@@ -54,3 +54,65 @@ insert into app.fee_adjustment_rules
   ('tripcom_202602', null,     'Trip.com', date '2026-02-01', null, 0.85, 0.10, 'floor'),
   ('neppan_tax10',   'neppan', null,       date '2000-01-01', null, 1.00, 0.10, 'floor')
 on conflict (rule_code) do nothing;
+
+-- ============================================================================
+-- minpakuIN 施設マスタ（DRAFT・要レビュー）
+-- 方針: base.csv のレポート施設名（create_report.py の前処理後）を正とする。
+-- 詳細仕様は docs/minpakuin-master-data.md。検証ハーネス scripts/verify/minpakuin-parity.ts。
+-- ============================================================================
+
+-- 1) 分割/新規の施設を追加（area_name は運用前に補完）
+insert into app.facilities (facility_code, display_name, area_name, is_active) values
+  ('elsinn_naha',      'コンドミニアム エルズイン 那覇樋川',          null, true),
+  ('chatanhills',      'ファミリーコンド 北谷ヒルズ',                null, true),
+  ('yuinoie',          '結の家',                                     null, true),  -- アクアパレス北谷から分割
+  ('aquapalace_annex', 'アクアパレス北谷ANNEX（クローバー桑江）',     null, true)   -- アクアパレス北谷から分割
+on conflict (facility_code) do nothing;
+
+-- 2) 表示名を base.csv 準拠に更新（表記ゆれ/別名の吸収）
+update app.facilities set display_name = 'サンセットリゾート カンプー'        where facility_code = 'Canpou';
+update app.facilities set display_name = '畳の宿 那覇壼屋'                    where facility_code = 'tataminoyadonaha'; -- 壼（base.csv）
+update app.facilities set display_name = 'プライベートコンド 古宇利島'        where facility_code = 'kondokouri';
+update app.facilities set display_name = 'プールヴィラ 今泊'                  where facility_code = 'imadomari';
+update app.facilities set display_name = 'プライベートコンド北谷 ジャーガル'  where facility_code = 'jyagal';
+-- (要確認) rusin(琉心 RUSIN) と base.csv「琉心 プライベートプール 恩納」を同一施設と仮定
+update app.facilities set display_name = '琉心 プライベートプール 恩納'        where facility_code = 'rusin';
+
+-- 3) source_facilities: base.csv 施設名 → 施設コード（minpakuin）
+insert into app.source_facilities (facility_id, source_system, source_facility_code, source_facility_name, is_active)
+select f.id, 'minpakuin', v.src, v.src, true
+from (values
+  ('ミュージックホテルコザ',           'koza'),
+  ('アクアパレス北谷',                 'aquapalace'),
+  ('コンドミニアム エルズイン 那覇樋川', 'elsinn_naha'),
+  ('ファミリーコンド 北谷ヒルズ',       'chatanhills'),
+  ('プライベートコンド 古宇利島',       'kondokouri'),
+  ('プールヴィラ 今泊',                'imadomari'),
+  ('プールヴィラ古宇利島',             'villakouri'),
+  ('プライベートコンド北谷 ジャーガル',  'jyagal'),
+  ('シティコンド ジョイントホーム那覇',  'joint'),
+  ('プールヴィラ屋我地島',             'villayagaji'),
+  ('畳の宿 北谷美浜',                  'tataminoyadomihama'),
+  ('畳の宿 那覇壼屋',                  'tataminoyadonaha'),
+  ('サンセットリゾート カンプー',       'Canpou'),
+  ('ヤンバルプールコンド屋我地',        'poolcondyagaji'),
+  ('琉心 恩納',                       'rusin'),  -- リネームで統合
+  ('琉心 プライベートプール 恩納',      'rusin')
+) as v(src, code)
+join app.facilities f on f.facility_code = v.code
+on conflict (source_system, source_facility_code) do nothing;
+
+-- 4) 部屋タイプ依存の施設分割（アクアパレス北谷 + 部屋タイプ → 別施設）。
+--    budget_room_type は分割後施設名（＝予算カテゴリ）。create_report の BUDGET_TYPE_MAP は
+--    全エントリが「分割後施設名」と一致するため、予算は施設名で導出する（個別 budget 行は不要）。
+insert into app.room_type_mappings
+  (source_system, facility_id, room_type_raw, room_type_normalized, budget_room_type, override_facility_id)
+select 'minpakuin', aqua.id, v.rt, v.rt, ov.display_name, ov.id
+from (values
+  ('【別邸】結の家 Ⅰ',  'yuinoie'),
+  ('【別邸】結の家 Ⅱ',  'yuinoie'),
+  ('【別邸】クローバー',  'aquapalace_annex')
+) as v(rt, ovcode)
+join app.facilities aqua on aqua.facility_code = 'aquapalace'
+join app.facilities ov   on ov.facility_code  = v.ovcode
+on conflict do nothing;
