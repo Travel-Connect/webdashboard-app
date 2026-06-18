@@ -75,8 +75,16 @@ update app.facilities set display_name = '畳の宿 那覇壼屋'               
 update app.facilities set display_name = 'プライベートコンド 古宇利島'        where facility_code = 'kondokouri';
 update app.facilities set display_name = 'プールヴィラ 今泊'                  where facility_code = 'imadomari';
 update app.facilities set display_name = 'プライベートコンド北谷 ジャーガル'  where facility_code = 'jyagal';
--- (要確認) rusin(琉心 RUSIN) と base.csv「琉心 プライベートプール 恩納」を同一施設と仮定
+-- rusin(琉心 RUSIN) = base.csv「琉心 プライベートプール 恩納」（同一施設・確認済 2026-06-18）
 update app.facilities set display_name = '琉心 プライベートプール 恩納'        where facility_code = 'rusin';
+
+-- 2b) エリア（送信用/料金変動資料 のフォルダ構成を正: 那覇・沖縄市 / 中部 / 北部）
+update app.facilities set area_name = '那覇・沖縄市'
+  where facility_code in ('elsinn_naha','koza','joint','tataminoyadonaha');
+update app.facilities set area_name = '中部'
+  where facility_code in ('aquapalace','jyagal','chatanhills','tataminoyadomihama','yuinoie','aquapalace_annex');
+update app.facilities set area_name = '北部'
+  where facility_code in ('Canpou','kondokouri','poolcondyagaji','villakouri','villayagaji','imadomari','rusin');
 
 -- 3) source_facilities: base.csv 施設名 → 施設コード（minpakuin）
 insert into app.source_facilities (facility_id, source_system, source_facility_code, source_facility_name, is_active)
