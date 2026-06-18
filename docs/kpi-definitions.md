@@ -4,12 +4,16 @@
 
 ## 1. 共通前提
 
-通常の実績集計は、特記がない限り以下を適用する。
+集計対象のフィルタは**指標タイプで異なる**。これは既存 `create_report.py` の挙動を実データで検証（minpakuIN base.csv 545k行 → 集計データ.xlsx と全シート ±0 一致）した確定事実である。
 
-```sql
-where is_stay_night = true
-  and is_cancelled = false
-```
+| 指標タイプ | フィルタ | 補足 |
+| --- | --- | --- |
+| 室数 / 宿泊人数（子データ系） | `is_stay_night = true AND is_cancelled = false` | `is_stay_night` = 親子判別=1（部屋利用日 ≠ チェックアウト日）。室数は `SUM(sold_room_nights)` = 行数 |
+| 金額（宿泊費 / 消費税 / 税抜・親データ系） | `fee_adjusted_gross_amount <> 0 AND is_cancelled = false` | **`is_stay_night` では絞らない**。チェックアウト日行でも補正後宿泊費 ≠ 0 の行は金額に算入する |
+
+> 旧 `where is_stay_night AND not is_cancelled` を金額にも一律適用すると Excel と乖離する（チェックアウト日かつ宿泊費≠0 の行が落ちる）。金額側は `is_stay_night` を使わないこと。
+>
+> 経路別 / 部屋タイプ別 / 国籍別の各シートは `groupby(dropna)` 相当で、グループキー（経路 / 部屋タイプ / OTA予約番号 等）が空の行は当該集計から除外される。
 
 金額は補正後列を使う。Agoda / Trip.com 等の手数料補正がある場合でも、税込・税抜・税額の整合を保つため、表示側は以下の列だけを参照する。
 
