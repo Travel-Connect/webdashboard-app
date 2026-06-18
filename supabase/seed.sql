@@ -50,9 +50,9 @@ on conflict (facility_code) do nothing;
 -- ねっぱん: 税込のため税率10%で逆算（gross_divisor=1）
 insert into app.fee_adjustment_rules
   (rule_code, source_system, channel_normalized, valid_from, valid_to, gross_divisor, tax_rate, tax_rounding) values
-  ('agoda_202601',   null,     'Agoda',    date '2026-01-01', null, 0.88, 0.10, 'floor'),
-  ('tripcom_202602', null,     'Trip.com', date '2026-02-01', null, 0.85, 0.10, 'floor'),
-  ('neppan_tax10',   'neppan', null,       date '2000-01-01', null, 1.00, 0.10, 'floor')
+  ('agoda_202601',   'minpakuin', 'Agoda',    date '2026-01-01', null, 0.88, 0.10, 'floor'),
+  ('tripcom_202602', 'minpakuin', 'Trip.com', date '2026-02-01', null, 0.85, 0.10, 'floor'),
+  ('neppan_tax10',   'neppan',    null,       date '2000-01-01', null, 1.00, 0.10, 'floor')
 on conflict (rule_code) do nothing;
 
 -- ============================================================================
