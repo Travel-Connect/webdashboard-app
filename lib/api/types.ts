@@ -177,7 +177,41 @@ export interface BookingCurveRow {
   oneFiftyOnePlusDaysBefore: number;
 }
 
+// summary（契約に明示が無いエンドポイントは合計系を返す）
+export interface NationalitySummary {
+  totalRevenue: number;
+  totalSoldRoomNights: number;
+  totalGuestCount: number;
+  totalReservationCount: number;
+  avgLeadTime: number | null;
+  countryCount: number;
+}
+export interface StayNightsSummary {
+  totalReservations: number;
+  totalSoldRoomNights: number;
+  totalGuestCount: number;
+  totalRevenue: number;
+}
+export interface AnnualSalesSummary {
+  totalRevenue: number;
+  totalPreviousYearRevenue: number | null;
+  yoyRate: number | null;
+  totalBudget: number | null;
+  budgetAchievementRate: number | null;
+  facilityCount: number;
+}
+export type CurveTotals = Omit<BookingCurveRow, "month" | "cancelScope">;
+export interface BookingCurveSummary {
+  months: number;
+  withCancelled: CurveTotals;
+  withoutCancelled: CurveTotals;
+}
+
 // 各エンドポイントの response 別名
 export type OccupancyResponse = DashboardResponse<OccupancySummary, OccupancyRow>;
 export type ChannelsResponse = DashboardResponse<ChannelSummary, ChannelRow>;
 export type RoomTypesResponse = DashboardResponse<RoomTypeRow, RoomTypeRow>;
+export type NationalitiesResponse = DashboardResponse<NationalitySummary, NationalityRow>;
+export type StayNightsResponse = DashboardResponse<StayNightsSummary, StayNightsRow>;
+export type BookingCurveResponse = DashboardResponse<BookingCurveSummary, BookingCurveRow>;
+export type AnnualSalesResponse = DashboardResponse<AnnualSalesSummary, AnnualSalesRow>;
