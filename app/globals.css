@@ -1,26 +1,121 @@
 @import "tailwindcss";
 
+/* ============================================================
+   宿泊施設 BI ダッシュボード — Design Tokens
+   Ported from docs/webdashboard-app2/project/app/tokens.css
+   業務ツール向けニュートラル基調。角丸最大8px。
+   ============================================================ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces */
+  --bg:            #F6F7F9;
+  --surface:       #FFFFFF;
+  --surface-2:     #FBFCFD;   /* subtle inset / table header */
+  --surface-3:     #F1F3F6;   /* hover row / track */
+
+  /* Text */
+  --text:          #172033;
+  --text-2:        #667085;
+  --text-3:        #97A0AE;   /* faint / placeholder */
+
+  /* Lines */
+  --border:        #DDE2E8;
+  --border-strong: #C7CFD8;
+
+  /* Actions / semantic */
+  --primary:       #2563EB;
+  --primary-weak:  #EAF1FE;
+  --primary-ink:   #1D4FD7;
+  --accent:        #0F766E;
+  --accent-weak:   #E5F2F0;
+  --warning:       #D97706;
+  --warning-weak:  #FCF1E2;
+  --danger:        #DC2626;
+  --danger-weak:   #FCEBEB;
+  --positive:      #15803D;
+  --positive-weak: #E7F3EC;
+
+  /* Chart palette — 用途別に限定使用 */
+  --c-blue:    #2563EB;
+  --c-teal:    #0F766E;
+  --c-amber:   #D97706;
+  --c-rose:    #E11D6F;
+  --c-violet:  #7C3AED;
+  --c-gray:    #94A3B8;
+
+  /* Radius (max 8px) */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+
+  /* Shadow — restrained, business tool */
+  --shadow-card: 0 1px 2px rgba(23,32,51,.06), 0 1px 1px rgba(23,32,51,.04);
+  --shadow-pop:  0 6px 20px rgba(23,32,51,.12), 0 2px 6px rgba(23,32,51,.08);
+
+  /* Spacing scale */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 20px; --s6: 24px; --s7: 32px; --s8: 40px;
+
+  /* Layout */
+  --sidebar-w: 240px;
+  --sidebar-w-collapsed: 64px;
+  --header-h: 56px;
+  --filterbar-h: 52px;
+
+  /* Type — wired via next/font (see layout.tsx) */
+  --font: var(--font-inter), var(--font-noto-jp), -apple-system, BlinkMacSystemFont,
+          "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", system-ui, sans-serif;
+  --num: var(--font-inter), system-ui, sans-serif;
 }
 
+/* Expose select tokens to Tailwind v4 utilities (optional class-based access) */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-positive: var(--positive);
+  --font-sans: var(--font);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
+.tabular { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+.mono { font-family: var(--num); font-variant-numeric: tabular-nums; }
+
+/* scrollbars — quiet */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #CDD4DD; border-radius: 8px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: #B6BFCB; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* focus ring */
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; border-radius: 3px; }
+
+/* base button reset */
+button { font-family: inherit; cursor: pointer; }
+
+/* prototype helpers (from 宿泊BIダッシュボード.html <style>) */
+.skel { background: linear-gradient(90deg, var(--surface-3) 25%, #e9edf2 37%, var(--surface-3) 63%); background-size: 400% 100%; animation: sh 1.4s ease infinite; }
+@keyframes sh { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+table.tbl tbody tr:last-child td { border-bottom: none; }
+.fade-in { animation: fi .25s ease both; }
+@keyframes fi { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media print { .no-print { display: none !important; } }
