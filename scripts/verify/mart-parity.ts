@@ -89,7 +89,7 @@ function compare(label: string, mine: Row, ref: Row) {
     const a = Math.round(mine[k] ?? 0), b = Math.round(ref[k] ?? 0); sm += a; sr += b;
     if (a !== b) { off++; maxD = Math.max(maxD, Math.abs(a - b)); if (samples.length < 5) samples.push(`      ${k} mine=${a} ref=${b}`); }
   }
-  (off === 0 ? pass++ : fail++);
+  if (off === 0) pass++; else fail++;
   console.log(`  ${off === 0 ? "✅" : "❌"} ${label}: ${keys.size - off}/${keys.size} 総計 mine=${sm.toLocaleString()} ref=${sr.toLocaleString()} diff=${sm - sr}${off ? ` 最大差=${maxD}` : ""}`);
   if (samples.length) console.log(samples.join("\n"));
 }

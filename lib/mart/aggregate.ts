@@ -189,7 +189,8 @@ export interface BookingCurveMartRow {
   oneTwentyOneToOneFiftyDaysBefore: number;
   oneFiftyOnePlusDaysBefore: number;
 }
-const CURVE_BUCKETS: [keyof BookingCurveMartRow, number][] = [
+type CurveField = Exclude<keyof BookingCurveMartRow, "facilityId" | "stayMonth" | "cancelScope">;
+const CURVE_BUCKETS: [CurveField, number][] = [
   ["sameDay", 0], ["oneDayBefore", 1], ["twoDaysBefore", 2], ["threeToSixDaysBefore", 3],
   ["sevenToThirteenDaysBefore", 7], ["fourteenToTwentyDaysBefore", 14], ["twentyOneToThirtyDaysBefore", 21],
   ["thirtyOneToSixtyDaysBefore", 31], ["sixtyOneToNinetyDaysBefore", 61], ["ninetyOneToOneTwentyDaysBefore", 91],
@@ -217,7 +218,7 @@ export function aggregateBookingCurve(canon: CanonicalStayNight[]): BookingCurve
         map.set(k, row);
       }
       for (const [field, th] of CURVE_BUCKETS) {
-        if (c.leadTimeDays >= th) (row[field] as number) += c.soldRoomNights;
+        if (c.leadTimeDays >= th) row[field] = row[field] + c.soldRoomNights;
       }
     }
   }
