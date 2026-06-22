@@ -17,9 +17,9 @@ import { monthBounds, ratio } from "./period";
    mart.monthly_channel_metrics の grain = (facility_id, stay_month, channel)。
    ============================================================ */
 
-/** monthly view: 経路 × 施設（エリア設定済の施設のみ＝コルディオ全施設横断）。
- *  列順は app.facilities.display_order 昇順（同一エリアは連続するので
- *  エリアの並び順も display_order から導出される）。順序はマスタで変更可。 */
+/** monthly view: 経路 × 施設。列は display_order を持つ「現行レポート対象施設」の
+ *  固定セット（その月に売上が無い施設も 0 で常時表示＝Excel と同じ列構成）。
+ *  列順・エリア順は display_order 昇順から導出。順序はマスタで変更可。 */
 async function facilityMatrix(
   pool: Pool,
   f: DashboardFilters,
@@ -27,37 +27,40 @@ async function facilityMatrix(
 ): Promise<{ matrix: ChannelMatrix; sold: number }> {
   const revCol = f.taxMode === "net" ? "net_amount" : "gross_amount";
   const [a, b] = monthBounds(f.period, year, f.month);
-  const q = await pool.query<{
-    facility_id: string;
-    facility_name: string;
-    area: string;
-    display_order: number | null;
-    channel: string;
-    revenue: number;
-    sold: number;
-  }>(
-    `select f.id facility_id, f.display_name facility_name, coalesce(f.area_name,'') area, f.display_order, m.channel,
+
+  // 1) 固定の列セット = display_order を持つレポート施設（売上有無に依らず常時表示）
+  const fac = await pool.query<{ id: string; display_name: string; area: string }>(
+    `select id, display_name, coalesce(area_name,'') area
+       from app.facilities
+      where display_order is not null
+      order by display_order, display_name`,
+  );
+  const columns: ChannelMatrixColumn[] = fac.rows.map((r) => ({
+    key: r.id,
+    label: r.display_name,
+    group: r.area,
+  }));
+  const facIds = new Set(fac.rows.map((r) => r.id));
+
+  // 2) 経路×施設の売上（レポート対象施設のみ）。欠損セルは 0 のまま。
+  const q = await pool.query<{ facility_id: string; channel: string; revenue: number; sold: number }>(
+    `select m.facility_id, m.channel,
        coalesce(sum(m.${revCol}),0)::float8 revenue,
        coalesce(sum(m.sold_room_nights),0)::float8 sold
      from mart.monthly_channel_metrics m
      join app.facilities f on f.id = m.facility_id
      where m.stay_month between $1 and $2
-       and coalesce(f.area_name,'') <> ''
-     group by f.id, f.display_name, f.area_name, f.display_order, m.channel`,
+       and f.display_order is not null
+     group by m.facility_id, m.channel`,
     [a, b],
   );
 
-  const facMeta = new Map<string, { name: string; area: string; order: number }>();
   const chan = new Map<string, ChannelMatrixRow>();
   let grand = 0;
   let grandSold = 0;
   for (const r of q.rows) {
+    if (!facIds.has(r.facility_id)) continue;
     const rev = Number(r.revenue);
-    facMeta.set(r.facility_id, {
-      name: r.facility_name,
-      area: r.area,
-      order: r.display_order ?? 9999,
-    });
     let row = chan.get(r.channel);
     if (!row) {
       row = { channel: r.channel, total: 0, cells: {} };
@@ -68,16 +71,6 @@ async function facilityMatrix(
     grand += rev;
     grandSold += Number(r.sold);
   }
-
-  // 列順 = display_order 昇順（同値は施設名）。同一エリアは display_order で連続する。
-  const columns: ChannelMatrixColumn[] = [...facMeta.keys()]
-    .sort((x, y) => {
-      const ox = facMeta.get(x)!.order;
-      const oy = facMeta.get(y)!.order;
-      if (ox !== oy) return ox - oy;
-      return facMeta.get(x)!.name < facMeta.get(y)!.name ? -1 : 1;
-    })
-    .map((id) => ({ key: id, label: facMeta.get(id)!.name, group: facMeta.get(id)!.area }));
 
   const rows = [...chan.values()].sort((x, y) => y.total - x.total);
   return { matrix: { columnKind: "facility", columns, rows, grandTotal: grand }, sold: grandSold };
@@ -100,7 +93,7 @@ async function monthMatrix(
      from mart.monthly_channel_metrics m
      join app.facilities f on f.id = m.facility_id
      where m.stay_month between $1 and $2
-       and coalesce(f.area_name,'') <> ''
+       and f.display_order is not null
        and ($3::uuid is null or m.facility_id = $3)
      group by mon, m.channel`,
     [a, b, facId],
