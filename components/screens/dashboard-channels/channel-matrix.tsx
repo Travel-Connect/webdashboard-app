@@ -171,7 +171,7 @@ export function ChannelMatrixTable({
             </th>
             {groups.map((g, gi) => (
               <th key={gi} colSpan={g.span} style={hArea}>
-                {g.label}
+                {columnKind === "facility" ? `${g.label}エリア` : g.label}
               </th>
             ))}
             <th

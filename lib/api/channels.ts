@@ -17,14 +17,9 @@ import { monthBounds, ratio } from "./period";
    mart.monthly_channel_metrics の grain = (facility_id, stay_month, channel)。
    ============================================================ */
 
-// エリア表示順 — Claude Design の地理順に合わせる（北谷=中部 → 北部 → 那覇・沖縄市）。
-const AREA_ORDER = ["中部", "北部", "那覇・沖縄市"];
-const areaRank = (a: string): number => {
-  const i = AREA_ORDER.indexOf(a);
-  return i === -1 ? AREA_ORDER.length : i;
-};
-
-/** monthly view: 経路 × 施設（エリア設定済の施設のみ＝コルディオ全施設横断）。 */
+/** monthly view: 経路 × 施設（エリア設定済の施設のみ＝コルディオ全施設横断）。
+ *  列順は app.facilities.display_order 昇順（同一エリアは連続するので
+ *  エリアの並び順も display_order から導出される）。順序はマスタで変更可。 */
 async function facilityMatrix(
   pool: Pool,
   f: DashboardFilters,
@@ -36,30 +31,33 @@ async function facilityMatrix(
     facility_id: string;
     facility_name: string;
     area: string;
+    display_order: number | null;
     channel: string;
     revenue: number;
     sold: number;
   }>(
-    `select f.id facility_id, f.display_name facility_name, coalesce(f.area_name,'') area, m.channel,
+    `select f.id facility_id, f.display_name facility_name, coalesce(f.area_name,'') area, f.display_order, m.channel,
        coalesce(sum(m.${revCol}),0)::float8 revenue,
        coalesce(sum(m.sold_room_nights),0)::float8 sold
      from mart.monthly_channel_metrics m
      join app.facilities f on f.id = m.facility_id
      where m.stay_month between $1 and $2
        and coalesce(f.area_name,'') <> ''
-     group by f.id, f.display_name, f.area_name, m.channel`,
+     group by f.id, f.display_name, f.area_name, f.display_order, m.channel`,
     [a, b],
   );
 
-  const facMeta = new Map<string, { name: string; area: string }>();
-  const facTotal = new Map<string, number>();
+  const facMeta = new Map<string, { name: string; area: string; order: number }>();
   const chan = new Map<string, ChannelMatrixRow>();
   let grand = 0;
   let grandSold = 0;
   for (const r of q.rows) {
     const rev = Number(r.revenue);
-    facMeta.set(r.facility_id, { name: r.facility_name, area: r.area });
-    facTotal.set(r.facility_id, (facTotal.get(r.facility_id) ?? 0) + rev);
+    facMeta.set(r.facility_id, {
+      name: r.facility_name,
+      area: r.area,
+      order: r.display_order ?? 9999,
+    });
     let row = chan.get(r.channel);
     if (!row) {
       row = { channel: r.channel, total: 0, cells: {} };
@@ -71,16 +69,13 @@ async function facilityMatrix(
     grandSold += Number(r.sold);
   }
 
-  // エリア順（AREA_ORDER）→ エリア内は施設合計の降順
+  // 列順 = display_order 昇順（同値は施設名）。同一エリアは display_order で連続する。
   const columns: ChannelMatrixColumn[] = [...facMeta.keys()]
     .sort((x, y) => {
-      const ax = facMeta.get(x)!.area;
-      const ay = facMeta.get(y)!.area;
-      const rx = areaRank(ax);
-      const ry = areaRank(ay);
-      if (rx !== ry) return rx - ry;
-      if (ax !== ay) return ax < ay ? -1 : 1;
-      return (facTotal.get(y) ?? 0) - (facTotal.get(x) ?? 0);
+      const ox = facMeta.get(x)!.order;
+      const oy = facMeta.get(y)!.order;
+      if (ox !== oy) return ox - oy;
+      return facMeta.get(x)!.name < facMeta.get(y)!.name ? -1 : 1;
     })
     .map((id) => ({ key: id, label: facMeta.get(id)!.name, group: facMeta.get(id)!.area }));
 
