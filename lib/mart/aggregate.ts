@@ -242,11 +242,16 @@ export function aggregateBookingCurveLead(canon: CanonicalStayNight[]): BookingC
   const scopes: [CancelScope, boolean][] = [["with_cancelled", true], ["without_cancelled", false]];
   for (const [scope, includeCancel] of scopes) {
     for (const c of canon) {
-      if (!c.isStayNight) continue;
       if (!includeCancel && c.isCancelled) continue;
-      if (c.leadTimeDays == null || c.leadTimeDays < 0) continue;
-      const gross = c.feeAdjustedGrossAmount ?? 0;
-      const net = c.feeAdjustedNetAmount ?? 0;
+      if (c.leadTimeDays == null || c.leadTimeDays < 0) continue; // 有効リードタイムのみバケット可
+      // 室数 = 検証済み ROOMS フィルタ（is_stay_night 行のみ）。
+      // 売上 = daily/channel/room_type と同じ AMT 定義（fee_adjusted_gross<>0・not cancelled、
+      // is_stay_night では絞らない）に合わせる。net は gross<>0 でゲート（AMT と同一）。
+      // ← こうしないと is_stay_night=false の売上行が落ち、稼働分析(売上)と不一致になる。
+      const rooms = c.isStayNight ? c.soldRoomNights : 0;
+      const grossRaw = c.feeAdjustedGrossAmount ?? 0;
+      const net = grossRaw !== 0 ? (c.feeAdjustedNetAmount ?? 0) : 0;
+      if (rooms === 0 && grossRaw === 0) continue;
       for (const [field, th] of CURVE_BUCKETS) {
         if (c.leadTimeDays < th) continue;
         const k = `${scope}|${c.facilityId}|${c.stayMonth}|${field}`;
@@ -263,8 +268,8 @@ export function aggregateBookingCurveLead(canon: CanonicalStayNight[]): BookingC
           };
           map.set(k, row);
         }
-        row.soldRoomNights += c.soldRoomNights;
-        row.grossAmount += gross;
+        row.soldRoomNights += rooms;
+        row.grossAmount += grossRaw;
         row.netAmount += net;
       }
     }
