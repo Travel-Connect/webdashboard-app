@@ -17,7 +17,14 @@ import { monthBounds, ratio } from "./period";
    mart.monthly_channel_metrics の grain = (facility_id, stay_month, channel)。
    ============================================================ */
 
-/** monthly view: 経路 × 施設（全施設・エリア順）。 */
+// エリア表示順 — Claude Design の地理順に合わせる（北谷=中部 → 北部 → 那覇・沖縄市）。
+const AREA_ORDER = ["中部", "北部", "那覇・沖縄市"];
+const areaRank = (a: string): number => {
+  const i = AREA_ORDER.indexOf(a);
+  return i === -1 ? AREA_ORDER.length : i;
+};
+
+/** monthly view: 経路 × 施設（エリア設定済の施設のみ＝コルディオ全施設横断）。 */
 async function facilityMatrix(
   pool: Pool,
   f: DashboardFilters,
@@ -39,6 +46,7 @@ async function facilityMatrix(
      from mart.monthly_channel_metrics m
      join app.facilities f on f.id = m.facility_id
      where m.stay_month between $1 and $2
+       and coalesce(f.area_name,'') <> ''
      group by f.id, f.display_name, f.area_name, m.channel`,
     [a, b],
   );
@@ -63,22 +71,18 @@ async function facilityMatrix(
     grandSold += Number(r.sold);
   }
 
-  // area 順 = エリア合計の降順、エリア内は施設合計の降順
-  const areaTotal = new Map<string, number>();
-  for (const [id, t] of facTotal) {
-    const area = facMeta.get(id)!.area;
-    areaTotal.set(area, (areaTotal.get(area) ?? 0) + t);
-  }
+  // エリア順（AREA_ORDER）→ エリア内は施設合計の降順
   const columns: ChannelMatrixColumn[] = [...facMeta.keys()]
     .sort((x, y) => {
       const ax = facMeta.get(x)!.area;
       const ay = facMeta.get(y)!.area;
-      const at = (areaTotal.get(ay) ?? 0) - (areaTotal.get(ax) ?? 0);
-      if (at !== 0) return at;
+      const rx = areaRank(ax);
+      const ry = areaRank(ay);
+      if (rx !== ry) return rx - ry;
       if (ax !== ay) return ax < ay ? -1 : 1;
       return (facTotal.get(y) ?? 0) - (facTotal.get(x) ?? 0);
     })
-    .map((id) => ({ key: id, label: facMeta.get(id)!.name, group: facMeta.get(id)!.area || "—" }));
+    .map((id) => ({ key: id, label: facMeta.get(id)!.name, group: facMeta.get(id)!.area }));
 
   const rows = [...chan.values()].sort((x, y) => y.total - x.total);
   return { matrix: { columnKind: "facility", columns, rows, grandTotal: grand }, sold: grandSold };
@@ -99,7 +103,10 @@ async function monthMatrix(
        coalesce(sum(m.${revCol}),0)::float8 revenue,
        coalesce(sum(m.sold_room_nights),0)::float8 sold
      from mart.monthly_channel_metrics m
-     where m.stay_month between $1 and $2 and ($3::uuid is null or m.facility_id = $3)
+     join app.facilities f on f.id = m.facility_id
+     where m.stay_month between $1 and $2
+       and coalesce(f.area_name,'') <> ''
+       and ($3::uuid is null or m.facility_id = $3)
      group by mon, m.channel`,
     [a, b, facId],
   );
