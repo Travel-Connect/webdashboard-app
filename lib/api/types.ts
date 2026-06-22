@@ -143,6 +143,31 @@ export interface NationalityRow {
   avgLeadTime: number | null;
 }
 
+// 国籍×12ヶ月 クロスタブ。指標（ADR/同伴人数/連泊率/リードタイム等）は base measures
+// からフロントで算出するため、セルは生の集計値を持つ（合計も同じ式で算出できる）。
+export interface NatCell {
+  rev: number;
+  rooms: number;
+  guests: number;
+  resv: number;
+  multi: number; // 連泊（2泊以上）予約数
+  ltTotal: number; // リードタイム合計（日）
+  ltCount: number; // 有効リードタイム件数
+}
+export interface NatMatrixRow {
+  country: string;
+  region: string; // countryMajor（大分類・参考。列としては表示しない）
+  months: NatCell[]; // length 12, index0 = 1月
+  total: NatCell;
+}
+export interface NationalityMatrix {
+  facName: string;
+  year: number;
+  rows: NatMatrixRow[]; // 売上合計の降順
+  colTotals: NatCell[]; // length 12
+  grand: NatCell;
+}
+
 // ---- 4. 泊数分布 ----
 export type NightsBucket = "1" | "2" | "3_4" | "5_6" | "7_plus";
 export interface StayNightsRow {
@@ -237,7 +262,9 @@ export interface ChannelsResponse extends DashboardResponse<ChannelSummary, Chan
   matrixPrevious?: ChannelMatrix | null;
 }
 export type RoomTypesResponse = DashboardResponse<RoomTypeRow, RoomTypeRow>;
-export type NationalitiesResponse = DashboardResponse<NationalitySummary, NationalityRow>;
+export interface NationalitiesResponse extends DashboardResponse<NationalitySummary, NationalityRow> {
+  matrix: NationalityMatrix;
+}
 export type StayNightsResponse = DashboardResponse<StayNightsSummary, StayNightsRow>;
 export type BookingCurveResponse = DashboardResponse<BookingCurveSummary, BookingCurveRow>;
 export type AnnualSalesResponse = DashboardResponse<AnnualSalesSummary, AnnualSalesRow>;
