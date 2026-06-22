@@ -104,6 +104,14 @@ update app.facilities set area_name = '那覇', display_order = v.ord
 
 update app.facilities set area_name = '沖縄市', display_order = 150 where facility_code = 'koza';
 
+-- 2c) グループ（マルチテナント）。コルディオ＝レポート対象15施設（display_order 設定済）。
+--     他施設（運営会社変更2件・ねっぱん・データ無）は group_id=null＝どのグループにも出さない。
+--     管理者が管理画面で新規グループを作成して割り当てる運用（認証ステップ以降）。
+insert into app.groups (slug, name) values ('cordio', 'コルディオグループ')
+  on conflict (slug) do nothing;
+update app.facilities set group_id = (select id from app.groups where slug = 'cordio')
+  where display_order is not null;
+
 -- 3) source_facilities: base.csv 施設名 → 施設コード（minpakuin）
 insert into app.source_facilities (facility_id, source_system, source_facility_code, source_facility_name, is_active)
 select f.id, 'minpakuin', v.src, v.src, true
