@@ -9,7 +9,7 @@ import { Client } from "pg";
 import * as XLSX from "xlsx";
 import { loadEnv, isConfigured } from "./load-env";
 import type { CanonicalStayNight } from "../../lib/adapters/canonical-schema";
-import { aggregateBookingCurve, aggregateCountry, aggregateStayNights, type BookingCurveMartRow, type CountryMartRow, type StayNightsMartRow } from "../../lib/mart/aggregate";
+import { aggregateBookingCurve, aggregateBookingCurveLead, aggregateCountry, aggregateStayNights, type BookingCurveLeadRow, type BookingCurveMartRow, type CountryMartRow, type StayNightsMartRow } from "../../lib/mart/aggregate";
 
 loadEnv();
 if (!isConfigured("SUPABASE_DB_URL")) { console.error("SUPABASE_DB_URL 未設定"); process.exit(1); }
@@ -102,6 +102,20 @@ async function main() {
     ["facility_id", "stay_month", "cancel_scope", "same_day", "one_day_before", "two_days_before", "three_to_six_days_before", "seven_to_thirteen_days_before", "fourteen_to_twenty_days_before", "twenty_one_to_thirty_days_before", "thirty_one_to_sixty_days_before", "sixty_one_to_ninety_days_before", "ninety_one_to_one_twenty_days_before", "one_twenty_one_to_one_fifty_days_before", "one_fifty_one_plus_days_before"],
     "facility_id uuid, stay_month date, cancel_scope text, same_day numeric, one_day_before numeric, two_days_before numeric, three_to_six_days_before numeric, seven_to_thirteen_days_before numeric, fourteen_to_twenty_days_before numeric, twenty_one_to_thirty_days_before numeric, thirty_one_to_sixty_days_before numeric, sixty_one_to_ninety_days_before numeric, ninety_one_to_one_twenty_days_before numeric, one_twenty_one_to_one_fifty_days_before numeric, one_fifty_one_plus_days_before numeric",
     bc.map((r) => ({ facility_id: r.facilityId, stay_month: r.stayMonth, cancel_scope: r.cancelScope, same_day: r.sameDay, one_day_before: r.oneDayBefore, two_days_before: r.twoDaysBefore, three_to_six_days_before: r.threeToSixDaysBefore, seven_to_thirteen_days_before: r.sevenToThirteenDaysBefore, fourteen_to_twenty_days_before: r.fourteenToTwentyDaysBefore, twenty_one_to_thirty_days_before: r.twentyOneToThirtyDaysBefore, thirty_one_to_sixty_days_before: r.thirtyOneToSixtyDaysBefore, sixty_one_to_ninety_days_before: r.sixtyOneToNinetyDaysBefore, ninety_one_to_one_twenty_days_before: r.ninetyOneToOneTwentyDaysBefore, one_twenty_one_to_one_fifty_days_before: r.oneTwentyOneToOneFiftyDaysBefore, one_fifty_one_plus_days_before: r.oneFiftyOnePlusDaysBefore })),
+  );
+
+  // ブッキングカーブ（long: リードタイム別 累積 販売室数＋売上）
+  await c.query(`create table if not exists mart.booking_curve_lead_metrics (
+    facility_id uuid not null references app.facilities(id) on delete cascade,
+    stay_month date not null, cancel_scope text not null, lead_bucket text not null,
+    sold_room_nights numeric not null default 0, gross_amount numeric not null default 0, net_amount numeric not null default 0,
+    primary key (facility_id, stay_month, cancel_scope, lead_bucket))`);
+  const bcl: BookingCurveLeadRow[] = aggregateBookingCurveLead(canon);
+  await insertBatched(
+    "mart.booking_curve_lead_metrics",
+    ["facility_id", "stay_month", "cancel_scope", "lead_bucket", "sold_room_nights", "gross_amount", "net_amount"],
+    "facility_id uuid, stay_month date, cancel_scope text, lead_bucket text, sold_room_nights numeric, gross_amount numeric, net_amount numeric",
+    bcl.map((r) => ({ facility_id: r.facilityId, stay_month: r.stayMonth, cancel_scope: r.cancelScope, lead_bucket: r.leadBucket, sold_room_nights: r.soldRoomNights, gross_amount: r.grossAmount, net_amount: r.netAmount })),
   );
 
   // 検証: minpakuin 施設の国籍別グランド総計（mart-parity.ts の ±0 値と一致するはず）

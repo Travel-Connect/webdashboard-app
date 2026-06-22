@@ -224,3 +224,50 @@ export function aggregateBookingCurve(canon: CanonicalStayNight[]): BookingCurve
   }
   return [...map.values()];
 }
+
+// long 形式（リードタイム別 累積 販売室数＋売上）。wide の aggregateBookingCurve と
+// 同一の累積ロジック（lead >= 閾値 のバケットに加算）に売上(gross/net)を追加。
+export interface BookingCurveLeadRow {
+  facilityId: string;
+  stayMonth: string;
+  cancelScope: CancelScope;
+  leadBucket: CurveField; // "sameDay" .. "oneFiftyOnePlusDaysBefore"
+  soldRoomNights: number;
+  grossAmount: number;
+  netAmount: number;
+}
+
+export function aggregateBookingCurveLead(canon: CanonicalStayNight[]): BookingCurveLeadRow[] {
+  const map = new Map<string, BookingCurveLeadRow>();
+  const scopes: [CancelScope, boolean][] = [["with_cancelled", true], ["without_cancelled", false]];
+  for (const [scope, includeCancel] of scopes) {
+    for (const c of canon) {
+      if (!c.isStayNight) continue;
+      if (!includeCancel && c.isCancelled) continue;
+      if (c.leadTimeDays == null || c.leadTimeDays < 0) continue;
+      const gross = c.feeAdjustedGrossAmount ?? 0;
+      const net = c.feeAdjustedNetAmount ?? 0;
+      for (const [field, th] of CURVE_BUCKETS) {
+        if (c.leadTimeDays < th) continue;
+        const k = `${scope}|${c.facilityId}|${c.stayMonth}|${field}`;
+        let row = map.get(k);
+        if (!row) {
+          row = {
+            facilityId: c.facilityId,
+            stayMonth: c.stayMonth,
+            cancelScope: scope,
+            leadBucket: field,
+            soldRoomNights: 0,
+            grossAmount: 0,
+            netAmount: 0,
+          };
+          map.set(k, row);
+        }
+        row.soldRoomNights += c.soldRoomNights;
+        row.grossAmount += gross;
+        row.netAmount += net;
+      }
+    }
+  }
+  return [...map.values()];
+}
