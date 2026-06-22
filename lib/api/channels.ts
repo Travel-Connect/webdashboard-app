@@ -9,6 +9,7 @@ import type {
   DashboardFilters,
 } from "./types";
 import { monthBounds, ratio } from "./period";
+import { activeGroupId } from "./group";
 
 /* ============================================================
    経路分析 — 既存Excel「経路別実績一覧」踏襲のクロスタブ集計。
@@ -27,13 +28,14 @@ async function facilityMatrix(
 ): Promise<{ matrix: ChannelMatrix; sold: number }> {
   const revCol = f.taxMode === "net" ? "net_amount" : "gross_amount";
   const [a, b] = monthBounds(f.period, year, f.month);
+  const gid = await activeGroupId(pool);
 
-  // 1) 固定の列セット = display_order を持つレポート施設（売上有無に依らず常時表示）
+  // 1) 固定の列セット = アクティブグループの施設（売上有無に依らず常時表示）
   const fac = await pool.query<{ id: string; display_name: string; area: string }>(
     `select id, display_name, coalesce(area_name,'') area
        from app.facilities
-      where display_order is not null
-      order by display_order, display_name`,
+      where group_id = '${gid}'
+      order by coalesce(display_order, 999999), display_name`,
   );
   const columns: ChannelMatrixColumn[] = fac.rows.map((r) => ({
     key: r.id,
@@ -50,7 +52,7 @@ async function facilityMatrix(
      from mart.monthly_channel_metrics m
      join app.facilities f on f.id = m.facility_id
      where m.stay_month between $1 and $2
-       and f.display_order is not null
+       and f.group_id = '${gid}'
      group by m.facility_id, m.channel`,
     [a, b],
   );
@@ -86,6 +88,7 @@ async function monthMatrix(
   const revCol = f.taxMode === "net" ? "net_amount" : "gross_amount";
   const facId = f.facilityId === "all" ? null : f.facilityId;
   const [a, b] = monthBounds("yearly", year);
+  const gid = await activeGroupId(pool);
   const q = await pool.query<{ mon: number; channel: string; revenue: number; sold: number }>(
     `select extract(month from m.stay_month)::int mon, m.channel,
        coalesce(sum(m.${revCol}),0)::float8 revenue,
@@ -93,7 +96,7 @@ async function monthMatrix(
      from mart.monthly_channel_metrics m
      join app.facilities f on f.id = m.facility_id
      where m.stay_month between $1 and $2
-       and f.display_order is not null
+       and f.group_id = '${gid}'
        and ($3::uuid is null or m.facility_id = $3)
      group by mon, m.channel`,
     [a, b, facId],

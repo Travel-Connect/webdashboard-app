@@ -6,6 +6,7 @@
    ============================================================ */
 
 import Link from "next/link";
+import useSWR from "swr";
 import { usePathname } from "next/navigation";
 import { Icon, type IconName } from "@/components/ui/icon";
 
@@ -37,6 +38,12 @@ export const NAV: NavGroup[] = [
 
 export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const pathname = usePathname();
+  // アクティブグループ名をブランディングとして表示
+  const { data: group } = useSWR<{ slug: string; name: string }>(
+    "/api/group",
+    (u: string) => fetch(u, { headers: { Accept: "application/json" } }).then((r) => r.json()),
+  );
+  const groupName = group?.name ?? "宿泊BI レポート";
   const isActive = (href: string) =>
     href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(href);
 
@@ -86,8 +93,17 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         </div>
         {!collapsed && (
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 800, lineHeight: 1.1, whiteSpace: "nowrap" }}>
-              宿泊BI レポート
+            <div
+              style={{
+                fontSize: 13.5,
+                fontWeight: 800,
+                lineHeight: 1.1,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {groupName}
             </div>
             <div style={{ fontSize: 10.5, color: "var(--text-3)", whiteSpace: "nowrap" }}>
               Stay Analytics

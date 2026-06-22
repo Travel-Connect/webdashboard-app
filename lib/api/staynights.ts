@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { DashboardFilters, NightsBucket, StayNightsResponse, StayNightsRow, StayNightsSummary } from "./types";
 import { monthBounds, ratio } from "./period";
+import { activeGroupId, facilityScopeSql } from "./group";
 
 const BUCKET_ORDER: Record<NightsBucket, number> = { "1": 0, "2": 1, "3_4": 2, "5_6": 3, "7_plus": 4 };
 
@@ -9,6 +10,7 @@ export async function buildStayNights(pool: Pool, f: DashboardFilters): Promise<
   const facId = f.facilityId === "all" ? null : f.facilityId;
   const revCol = f.taxMode === "net" ? "net_amount" : "gross_amount";
   const [a, b] = monthBounds(f.period, f.year, f.month);
+  const gid = await activeGroupId(pool);
   const q = await pool.query(
     `select to_char(checkin_month,'YYYY-MM-DD') as "month", nights_bucket,
        coalesce(sum(reservation_count),0)::int resv,
@@ -17,6 +19,7 @@ export async function buildStayNights(pool: Pool, f: DashboardFilters): Promise<
        coalesce(sum(${revCol}),0)::float8 revenue
      from mart.stay_nights_distribution
      where ($1::uuid is null or facility_id = $1) and checkin_month between $2 and $3
+       and ${facilityScopeSql(gid)}
      group by checkin_month, nights_bucket`,
     [facId, a, b],
   );

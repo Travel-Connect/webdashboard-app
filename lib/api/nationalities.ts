@@ -9,6 +9,7 @@ import type {
   NatMatrixRow,
 } from "./types";
 import { monthBounds, ratio } from "./period";
+import { activeGroupId, facilityScopeSql } from "./group";
 
 /* ============================================================
    国籍別分析 — 既存Excel「国籍別分析」忠実再現。
@@ -58,6 +59,7 @@ async function nationalityMatrix(
   const facId = f.facilityId === "all" ? null : f.facilityId;
   const revCol = f.taxMode === "net" ? "net_amount" : "gross_amount";
   const [ya, yb] = monthBounds("yearly", f.year);
+  const gid = await activeGroupId(pool);
   const q = await pool.query<MatrixQueryRow>(
     `select country_normalized country, country_major region,
        extract(month from stay_month)::int mon,
@@ -70,6 +72,7 @@ async function nationalityMatrix(
        coalesce(sum(lead_time_count),0)::int lt_count
      from mart.monthly_country_metrics
      where ($1::uuid is null or facility_id = $1) and stay_month between $2 and $3
+       and ${facilityScopeSql(gid)}
      group by country_normalized, country_major, mon`,
     [facId, ya, yb],
   );
@@ -117,6 +120,7 @@ export async function buildNationalities(pool: Pool, f: DashboardFilters): Promi
   const facId = f.facilityId === "all" ? null : f.facilityId;
   const revCol = f.taxMode === "net" ? "net_amount" : "gross_amount";
   const [a, b] = monthBounds(f.period, f.year, f.month);
+  const gid = await activeGroupId(pool);
 
   // flat rows + summary（契約維持・期間フィルタ準拠）
   const q = await pool.query(
@@ -130,6 +134,7 @@ export async function buildNationalities(pool: Pool, f: DashboardFilters): Promi
        coalesce(sum(lead_time_count),0)::int lt_count
      from mart.monthly_country_metrics
      where ($1::uuid is null or facility_id = $1) and stay_month between $2 and $3
+       and ${facilityScopeSql(gid)}
      group by country_major, country_middle, country_normalized`,
     [facId, a, b],
   );

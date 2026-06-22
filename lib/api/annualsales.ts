@@ -8,6 +8,7 @@ import type {
   AnnualSalesSummary,
   DashboardFilters,
 } from "./types";
+import { activeGroupId } from "./group";
 
 /* ============================================================
    全施設年間売上 — 既存Excel忠実再現。
@@ -37,12 +38,13 @@ const accCell = (acc: Acc): AnnualCell => ({
 async function annualMatrix(pool: Pool, f: DashboardFilters): Promise<AnnualMatrix> {
   const revCol = f.taxMode === "net" ? "net_amount" : "gross_amount";
   const y = f.year;
+  const gid = await activeGroupId(pool);
 
-  // 列 = 現行レポート施設（display_order 昇順・エリアグループ）
+  // 列 = アクティブグループの施設（display_order 昇順・エリアグループ）
   const fac = await pool.query<{ id: string; display_name: string; area: string }>(
     `select id, display_name, coalesce(area_name,'') area
-       from app.facilities where display_order is not null
-      order by display_order, display_name`,
+       from app.facilities where group_id = '${gid}'
+      order by coalesce(display_order, 999999), display_name`,
   );
   const facilities = fac.rows.map((r) => ({ id: r.id, name: r.display_name, area: r.area }));
   const facIds = new Set(facilities.map((x) => x.id));
@@ -98,6 +100,7 @@ async function annualMatrix(pool: Pool, f: DashboardFilters): Promise<AnnualMatr
 export async function buildAnnualSales(pool: Pool, f: DashboardFilters): Promise<AnnualSalesResponse> {
   const revCol = f.taxMode === "net" ? "net_amount" : "gross_amount";
   const y = f.year;
+  const gid = await activeGroupId(pool);
 
   // flat rows + summary（契約維持。前年比/予算達成率は施設単位）
   const q = await pool.query(
@@ -110,7 +113,7 @@ export async function buildAnnualSales(pool: Pool, f: DashboardFilters): Promise
      left join rev on rev.facility_id = f.id
      left join prev on prev.facility_id = f.id
      left join bud on bud.facility_id = f.id
-     where rev.r is not null or bud.a is not null
+     where f.group_id = '${gid}' and (rev.r is not null or bud.a is not null)
      order by coalesce(rev.r,0) desc`,
     [`${y}-01-01`, `${y}-12-31`, `${y - 1}-01-01`, `${y - 1}-12-31`],
   );

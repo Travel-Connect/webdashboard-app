@@ -8,6 +8,7 @@ import type {
   RtMatrixRow,
 } from "./types";
 import { monthBounds, ratio } from "./period";
+import { activeGroupId, facilityScopeSql } from "./group";
 
 /* ============================================================
    部屋タイプ別分析 — 既存Excel忠実再現。
@@ -26,6 +27,7 @@ async function roomTypeMatrix(pool: Pool, f: DashboardFilters, facName: string):
   const facId = f.facilityId === "all" ? null : f.facilityId;
   const revCol = f.taxMode === "net" ? "net_amount" : "gross_amount";
   const [ya, yb] = monthBounds("yearly", f.year);
+  const gid = await activeGroupId(pool);
   const q = await pool.query<{ rt: string; mon: number; rooms: number; guests: number; rev: number }>(
     `select room_type_normalized rt, extract(month from stay_month)::int mon,
        coalesce(sum(sold_room_nights),0)::float8 rooms,
@@ -33,6 +35,7 @@ async function roomTypeMatrix(pool: Pool, f: DashboardFilters, facName: string):
        coalesce(sum(${revCol}),0)::float8 rev
      from mart.monthly_room_type_metrics
      where ($1::uuid is null or facility_id = $1) and stay_month between $2 and $3
+       and ${facilityScopeSql(gid)}
      group by room_type_normalized, mon`,
     [facId, ya, yb],
   );
@@ -71,6 +74,7 @@ export async function buildRoomTypes(pool: Pool, f: DashboardFilters): Promise<R
   const facId = f.facilityId === "all" ? null : f.facilityId;
   const revCol = f.taxMode === "net" ? "net_amount" : "gross_amount";
   const [a, b] = monthBounds(f.period, f.year, f.month);
+  const gid = await activeGroupId(pool);
 
   // flat rows + summary（契約維持・期間フィルタ準拠）
   const q = await pool.query(
@@ -81,6 +85,7 @@ export async function buildRoomTypes(pool: Pool, f: DashboardFilters): Promise<R
        coalesce(sum(${revCol}),0)::float8 revenue
      from mart.monthly_room_type_metrics
      where ($1::uuid is null or facility_id = $1) and stay_month between $2 and $3
+       and ${facilityScopeSql(gid)}
      group by room_type_normalized, budget_room_type`,
     [facId, a, b],
   );

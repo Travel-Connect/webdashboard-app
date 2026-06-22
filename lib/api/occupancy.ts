@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import type { DashboardFilters, OccupancyResponse, OccupancyRow, OccupancySummary, MetricComparison } from "./types";
+import { activeGroupId, facilityScopeSql } from "./group";
 
 const ratio = (a: number, b: number): number | null => (b > 0 ? a / b : null);
 const ymd = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
@@ -15,6 +16,7 @@ interface PeriodAgg {
 async function aggregate(pool: Pool, f: DashboardFilters, year: number): Promise<PeriodAgg> {
   const facId = f.facilityId === "all" ? null : f.facilityId;
   const revCol = f.taxMode === "net" ? "net_amount" : "gross_amount";
+  const gid = await activeGroupId(pool);
 
   let start: string, end: string, months: string[];
   if (f.period === "monthly") {
@@ -36,6 +38,7 @@ async function aggregate(pool: Pool, f: DashboardFilters, year: number): Promise
        coalesce(sum(d.${revCol}),0)::float8 revenue
      from mart.daily_facility_metrics d
      where ($1::uuid is null or d.facility_id = $1) and d.stay_date between $2 and $3
+       and ${facilityScopeSql(gid, "d.facility_id")}
      group by 1 order by 1`,
     [facId, start, end],
   );
@@ -45,6 +48,7 @@ async function aggregate(pool: Pool, f: DashboardFilters, year: number): Promise
        coalesce(sum(sellable_rooms_per_day),0)::int spd
      from app.room_inventory_months
      where ($1::uuid is null or facility_id = $1) and month = any($2::date[])
+       and ${facilityScopeSql(gid)}
      group by month`,
     [facId, months],
   );

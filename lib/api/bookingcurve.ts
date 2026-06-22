@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { BookingCurveResponse, BookingCurveRow, BookingCurveSummary, CurveTotals, DashboardFilters } from "./types";
 import { monthBounds } from "./period";
+import { activeGroupId, facilityScopeSql } from "./group";
 
 const FIELDS: (keyof CurveTotals)[] = [
   "sameDay", "oneDayBefore", "twoDaysBefore", "threeToSixDaysBefore", "sevenToThirteenDaysBefore",
@@ -20,11 +21,13 @@ const zeroTotals = (): CurveTotals => Object.fromEntries(FIELDS.map((k) => [k, 0
 export async function buildBookingCurve(pool: Pool, f: DashboardFilters): Promise<BookingCurveResponse> {
   const facId = f.facilityId === "all" ? null : f.facilityId;
   const [a, b] = monthBounds(f.period, f.year, f.month);
+  const gid = await activeGroupId(pool);
   const sumCols = FIELDS.map((k) => `coalesce(sum(${COLS[k]}),0)::float8 "${k}"`).join(", ");
   const q = await pool.query(
     `select to_char(stay_month,'YYYY-MM-DD') as "month", cancel_scope, ${sumCols}
      from mart.booking_curve_monthly
      where ($1::uuid is null or facility_id = $1) and stay_month between $2 and $3
+       and ${facilityScopeSql(gid)}
      group by stay_month, cancel_scope`,
     [facId, a, b],
   );
