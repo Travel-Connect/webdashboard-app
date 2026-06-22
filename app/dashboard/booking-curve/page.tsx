@@ -1,39 +1,33 @@
 "use client";
 
 /* ============================================================
-   /dashboard/booking-curve — ブッキングカーブ
-   Lead-time (リードタイム) bucket distribution of sold room nights,
-   ported from docs/.../screens-booking.jsx onto the live
-   /api/dashboard/booking-curve endpoint.
-
-   LIVE-DATA NOTE: the endpoint returns sold-room-night counts per
-   lead-time bucket, split by cancel scope (with/without cancelled);
-   it has no previous-year, ADR, revenue or occupancy per bucket.
-   So the prototype's 当年 vs 前年 comparison + 売上/ADR/稼働率 metric
-   tabs + dual-axis revenue chart have no source. The faithful live
-   rendering compares the two real series we have — キャンセルを除く
-   (実需) vs キャンセルを含む — across the same bucket axis.
+   /dashboard/booking-curve — ブッキングカーブ（既存Excel忠実再現）
+   docs/.../screens-booking.jsx を移植。指標(販売室数/売上/ADR/稼働率)切替・
+   当年 vs 前年・進捗率・二軸チャート(販売室数×売上)。
+   Live endpoint: /api/dashboard/booking-curve -> BookingCurveResponse.matrix
    ============================================================ */
 
-import { useMemo, useState } from "react";
-import useSWR from "swr";
-import type { FacilityOption } from "@/app/api/facilities/route";
+import { type ReactNode, useState } from "react";
 import { useFilters } from "@/lib/dashboard/use-filters";
 import { useDashboardQuery } from "@/lib/dashboard/client";
-import { integer, percent } from "@/lib/dashboard/format";
+import { integer, percent, yen, yenCompact } from "@/lib/dashboard/format";
 import { Btn, EmptyState, LoadingSkeleton, Segmented } from "@/components/ui/primitives";
-import { KpiGrid, StatCard } from "@/components/ui/stat-card";
 import { MultiLineChart } from "@/components/charts";
-import {
-  BUCKET_LABELS,
-  COLOR_CANCEL,
-  COLOR_CUR,
-  bucketValues,
-} from "@/components/screens/dashboard-booking-curve/constants";
-import {
-  CurveTable,
-  type CurveTableRow,
-} from "@/components/screens/dashboard-booking-curve/curve-table";
+import { MetricTabs, useMetricTabs } from "@/components/dashboard/metric-tabs";
+import { CurveTable, type CurveTableRow } from "@/components/screens/dashboard-booking-curve/curve-table";
+import type { BcCell } from "@/lib/api/types";
+
+const NAVY = "#2563EB"; // 当年
+const ORANGE = "#ED7D31"; // 前年
+
+type BcMetricId = "rooms" | "rev" | "adr" | "occ";
+const BC_METRICS: { id: BcMetricId; label: string }[] = [
+  { id: "rooms", label: "販売室数（泊数）" },
+  { id: "rev", label: "売上" },
+  { id: "adr", label: "ADR" },
+  { id: "occ", label: "稼働率" },
+];
+const BC_IDS = BC_METRICS.map((m) => m.id);
 
 const card: React.CSSProperties = {
   border: "1px solid var(--border)",
@@ -43,30 +37,12 @@ const card: React.CSSProperties = {
   overflow: "hidden",
 };
 
-function Caption({ text, sub }: { text: string; sub?: string }) {
+function Caption({ text, sub }: { text: string; sub?: ReactNode }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "baseline",
-        gap: 10,
-        padding: "11px 16px",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
-      <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 800, whiteSpace: "nowrap", flexShrink: 0 }}>
-        {text}
-      </h3>
+    <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "11px 16px", borderBottom: "1px solid var(--border)" }}>
+      <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 800, whiteSpace: "nowrap", flexShrink: 0 }}>{text}</h3>
       {sub && (
-        <span
-          style={{
-            fontSize: 11.5,
-            color: "var(--text-3)",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
+        <span style={{ fontSize: 11.5, color: "var(--text-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {sub}
         </span>
       )}
@@ -74,48 +50,71 @@ function Caption({ text, sub }: { text: string; sub?: string }) {
   );
 }
 
-const facFetcher = (url: string) =>
-  fetch(url).then((r) => r.json() as Promise<FacilityOption[]>);
-
-type Scope = "without" | "with";
+const taxRev = (c: BcCell, gross: boolean) => (gross ? c.gross : c.net);
+function metricValue(id: BcMetricId, c: BcCell, sellable: number, gross: boolean): number {
+  if (id === "rooms") return c.rooms;
+  if (id === "rev") return taxRev(c, gross);
+  if (id === "adr") return c.rooms ? taxRev(c, gross) / c.rooms : 0;
+  return sellable ? (c.rooms / sellable) * 100 : 0; // occ
+}
+function metricFmt(id: BcMetricId): (v: number) => string {
+  if (id === "rev" || id === "adr") return (v) => yen(v);
+  if (id === "occ") return (v) => percent(v);
+  return (v) => integer(v);
+}
+const progress = (vals: number[]): number[] => vals.map((v) => (vals[0] ? (v / vals[0]) * 100 : 0));
 
 export default function BookingCurvePage() {
   const { filters } = useFilters();
   const { data, error, isLoading } = useDashboardQuery("booking-curve", filters);
-  const { data: facilities } = useSWR<FacilityOption[]>("/api/facilities", facFetcher, {
-    revalidateOnFocus: false,
-  });
+  const metric = useMetricTabs<BcMetricId>(BC_IDS, ["rooms"]);
+  const [scope, setScope] = useState<"without" | "with">("without");
 
-  // Which cancel scope drives the single-table view (default: 実需 = 除く).
-  const [scope, setScope] = useState<Scope>("without");
+  const matrix = data?.matrix ?? null;
+  const gross = filters.taxMode === "gross";
+  const taxLabel = gross ? "税込" : "税抜";
+  const monthly = filters.period === "monthly" && filters.month != null;
+  const facName = matrix?.facName ?? (filters.facilityId === "all" ? "全施設" : "施設");
 
-  const facName =
-    filters.facilityId === "all"
-      ? "全施設"
-      : facilities?.find((f) => f.id === filters.facilityId)?.displayName ?? "施設";
+  const periodCur = monthly ? `${filters.year}/${filters.month}` : `${filters.year}年`;
+  const periodPy = monthly ? `${filters.year - 1}/${filters.month}` : `${filters.year - 1}年`;
+  const cancelLbl = scope === "without" ? "キャンセルを除く" : "キャンセルを含む";
+  const shown = BC_METRICS.filter((m) => metric.sel.includes(m.id));
+  const multi = shown.length > 1;
 
-  const periodLabel =
-    filters.period === "monthly" && filters.month
-      ? `${filters.year}年${filters.month}月`
-      : `${filters.year}年`;
+  const curCells = (): BcCell[] =>
+    matrix ? (scope === "without" ? matrix.current.withoutCancelled : matrix.current.withCancelled) : [];
+  const pyCells = (): BcCell[] =>
+    matrix?.previous ? (scope === "without" ? matrix.previous.withoutCancelled : matrix.previous.withCancelled) : [];
 
-  const summary = data?.summary;
+  const Header = (
+    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ minWidth: 0 }}>
+        <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800 }}>ブッキングカーブ</h2>
+        <div style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {facName}
+          {monthly && matrix ? ` · 室数 ${Math.round(matrix.current.sellable / daysInMonth(filters.year, filters.month!))}` : ""}
+          {" · "}
+          {monthly ? `${filters.year}年${filters.month}月` : `${filters.year}年`} · {taxLabel}表示
+        </div>
+      </div>
+    </div>
+  );
 
-  // Bucket values for each scope from the live summary totals.
-  const series = useMemo(() => {
-    if (!summary) return null;
-    const without = bucketValues(summary.withoutCancelled);
-    const withc = bucketValues(summary.withCancelled);
-    return { without, withc };
-  }, [summary]);
-
-  const sub = `${facName} / ${periodLabel}（販売室数・累計）`;
-
-  /* ----- loading / error / empty ----- */
-  if (isLoading && !data) {
+  if (error) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Header facName={facName} periodLabel={periodLabel} />
+        {Header}
+        <div style={card}>
+          <EmptyState icon="TriangleAlert" title="データを取得できませんでした" body={error.message} />
+        </div>
+      </div>
+    );
+  }
+  if ((isLoading && !data) || !matrix) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {Header}
         <div style={{ ...card, padding: 20 }}>
           <LoadingSkeleton rows={6} />
         </div>
@@ -123,134 +122,58 @@ export default function BookingCurvePage() {
     );
   }
 
-  if (error) {
+  // 指標ごとの 累計（+進捗率）テーブル
+  const renderMetric = (id: BcMetricId, compact: boolean): ReactNode => {
+    const M = BC_METRICS.find((m) => m.id === id)!;
+    const fmt = metricFmt(id);
+    const cur = curCells().map((c) => metricValue(id, c, matrix.current.sellable, gross));
+    const py = pyCells().map((c) => metricValue(id, c, matrix.previous?.sellable ?? 0, gross));
+    const sub = `${facName} / ${periodCur}（${M.label}）`;
+    const rows: CurveTableRow[] = [
+      { label: `${cancelLbl}（当年）`, period: periodCur, values: cur, dotColor: NAVY },
+      { label: `${cancelLbl}（前年）`, period: periodPy, values: py, dotColor: ORANGE },
+    ];
+    const progRows: CurveTableRow[] = [
+      { label: `${cancelLbl}（当年）`, period: periodCur, values: progress(cur), dotColor: NAVY },
+      { label: `${cancelLbl}（前年）`, period: periodPy, values: progress(py), dotColor: ORANGE },
+    ];
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Header facName={facName} periodLabel={periodLabel} />
+      <div key={id} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={card}>
-          <EmptyState
-            icon="TriangleAlert"
-            title="データを取得できませんでした"
-            body={error.message}
-          />
+          <Caption text="ブッキングカーブ 累計" sub={sub} />
+          <div style={{ overflowX: "auto" }}>
+            <CurveTable rows={rows} fmt={fmt} />
+          </div>
         </div>
+        {!compact && (
+          <div style={card}>
+            <Caption text="当日を100%とした進捗率" sub={sub} />
+            <div style={{ overflowX: "auto" }}>
+              <CurveTable rows={progRows} fmt={(v) => percent(v)} />
+            </div>
+          </div>
+        )}
       </div>
     );
-  }
+  };
 
-  if (!summary || !series || summary.months === 0) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Header facName={facName} periodLabel={periodLabel} />
-        <div style={card}>
-          <EmptyState
-            icon="CalendarSearch"
-            title="該当データがありません"
-            body="選択した施設・期間にブッキングカーブのデータが見つかりませんでした。"
-          />
-        </div>
-      </div>
-    );
-  }
-
-  /* ----- derived KPIs (from live counts, no synthesis) ----- */
-  const active = scope === "without" ? series.without : series.withc;
-  const total = active.reduce((s, v) => s + v, 0);
-  const sameDay = active[0] ?? 0;
-  const totalWith = series.withc.reduce((s, v) => s + v, 0);
-  const cancelledRoomNights = totalWith - series.without.reduce((s, v) => s + v, 0);
-  const cancelRate = totalWith > 0 ? (cancelledRoomNights / totalWith) * 100 : null;
-  // 早期予約（21日以上前）の構成比
-  const earlyIdx = 6; // index of "21〜30日前"; >= this is 21日以上前
-  const earlySum = active.slice(earlyIdx).reduce((s, v) => s + v, 0);
-  const earlyRate = total > 0 ? (earlySum / total) * 100 : null;
-
-  /* ----- table rows (both scopes shown together, faithful to Excel) ----- */
-  const tableRows: CurveTableRow[] = [
-    {
-      label: "キャンセルを除く（実需）",
-      period: periodLabel,
-      values: series.without,
-      dotColor: COLOR_CUR,
-    },
-    {
-      label: "キャンセルを含む",
-      period: periodLabel,
-      values: series.withc,
-      dotColor: COLOR_CANCEL,
-    },
-  ];
-
-  const progress = (vals: number[]): number[] =>
-    vals.map((v) => (vals[0] ? (v / vals[0]) * 100 : 0));
-
-  const progressRows: CurveTableRow[] = [
-    {
-      label: "キャンセルを除く（実需）",
-      period: periodLabel,
-      values: progress(series.without),
-      dotColor: COLOR_CUR,
-    },
-    {
-      label: "キャンセルを含む",
-      period: periodLabel,
-      values: progress(series.withc),
-      dotColor: COLOR_CANCEL,
-    },
-  ];
-
-  /* ----- line chart: with/without cancelled across buckets ----- */
+  // 二軸チャート：販売室数（左）× 売上（右）・当年 vs 前年
   const chartSeries = [
-    {
-      label: "キャンセルを除く（実需）",
-      color: COLOR_CUR,
-      values: series.without,
-      axis: "left" as const,
-    },
-    {
-      label: "キャンセルを含む",
-      color: COLOR_CANCEL,
-      values: series.withc,
-      axis: "left" as const,
-      dashed: true,
-    },
+    { label: "販売室数 当年", color: NAVY, values: curCells().map((c) => c.rooms), axis: "left" as const },
+    { label: "販売室数 前年", color: NAVY, values: pyCells().map((c) => c.rooms), axis: "left" as const, dashed: true },
+    { label: "売上 当年", color: ORANGE, values: curCells().map((c) => taxRev(c, gross)), axis: "right" as const },
+    { label: "売上 前年", color: ORANGE, values: pyCells().map((c) => taxRev(c, gross)), axis: "right" as const, dashed: true },
   ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <Header facName={facName} periodLabel={periodLabel} months={summary.months} />
+      {Header}
 
-      {/* KPI cards (all from live counts) */}
-      <KpiGrid minWidth={210}>
-        <StatCard
-          label="累計販売室数"
-          sub={scope === "without" ? "キャンセルを除く" : "キャンセルを含む"}
-          value={integer(total)}
-          icon="BedDouble"
-        />
-        <StatCard
-          label="当日（リードタイム0）"
-          sub="当日成約室数"
-          value={integer(sameDay)}
-          icon="CalendarCheck"
-        />
-        <StatCard
-          label="早期予約構成比"
-          sub="21日以上前"
-          value={percent(earlyRate)}
-          icon="CalendarClock"
-        />
-        <StatCard
-          label="キャンセル率"
-          sub="室数ベース"
-          value={percent(cancelRate)}
-          icon="CalendarX"
-        />
-      </KpiGrid>
-
-      {/* Scope toggle + export */}
+      {/* 指標セレクタ + キャンセル可否 + エクスポート */}
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <Segmented<Scope>
+        <MetricTabs metrics={BC_METRICS} state={metric} />
+        <div style={{ flex: 1 }} />
+        <Segmented<"without" | "with">
           value={scope}
           onChange={setScope}
           options={[
@@ -258,43 +181,25 @@ export default function BookingCurvePage() {
             { value: "with", label: "キャンセルを含む" },
           ]}
         />
-        <span style={{ fontSize: 11.5, color: "var(--text-3)" }}>
-          進捗率カードは選択中の集計区分を反映します
-        </span>
-        <div style={{ flex: 1 }} />
         <Btn variant="default" icon="FileDown" size="sm">
           エクスポート
         </Btn>
       </div>
 
-      {/* 累計テーブル */}
-      <div style={card}>
-        <Caption text="ブッキングカーブ 累計" sub={sub} />
-        <div style={{ overflowX: "auto" }}>
-          <CurveTable rows={tableRows} fmt={(v) => integer(v)} />
-        </div>
-      </div>
+      {/* 指標テーブル（単一=累計+進捗率 / すべて表示=累計のみ積み重ね） */}
+      {multi ? shown.map((m) => renderMetric(m.id, true)) : renderMetric(shown[0].id, false)}
 
-      {/* 進捗率テーブル（当日を100%） */}
+      {/* 二軸チャート */}
       <div style={card}>
-        <Caption text="当日を100%とした進捗率" sub={sub} />
-        <div style={{ overflowX: "auto" }}>
-          <CurveTable rows={progressRows} fmt={(v) => percent(v)} />
-        </div>
-      </div>
-
-      {/* 折れ線チャート */}
-      <div style={card}>
-        <Caption
-          text="ブッキングカーブ チャート"
-          sub="リードタイム別 累計販売室数・キャンセルを除く vs 含む"
-        />
+        <Caption text="ブッキングカーブ チャート" sub={`販売室数（左軸）× 売上（右軸・${taxLabel}）・当年 vs 前年`} />
         <div style={{ padding: "18px 18px 12px" }}>
           <MultiLineChart
             series={chartSeries}
-            xLabels={BUCKET_LABELS}
+            xLabels={matrix.buckets.map((b) => b.label)}
             yFmt={(v) => integer(v)}
+            yFmtRight={(v) => yenCompact(v)}
             hoverFmt={(v) => integer(v)}
+            hoverFmtRight={(v) => yen(v)}
             height={360}
           />
         </div>
@@ -303,39 +208,6 @@ export default function BookingCurvePage() {
   );
 }
 
-function Header({
-  facName,
-  periodLabel,
-  months,
-}: {
-  facName: string;
-  periodLabel: string;
-  months?: number;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "flex-end",
-        justifyContent: "space-between",
-        gap: 12,
-        flexWrap: "wrap",
-      }}
-    >
-      <div>
-        <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800 }}>ブッキングカーブ</h2>
-        <div
-          style={{
-            fontSize: 12.5,
-            color: "var(--text-2)",
-            marginTop: 3,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {facName} · {periodLabel}
-          {months != null && months > 1 ? ` · ${months}ヶ月集計` : ""} · 販売室数（リードタイム別累計）
-        </div>
-      </div>
-    </div>
-  );
+function daysInMonth(y: number, m: number): number {
+  return new Date(y, m, 0).getDate();
 }
