@@ -39,7 +39,7 @@
 | charts チャート基盤 | 96 | 忠実 | BarCell未移植のみ（DonutChart追加は想定内） |
 | stay-nights 泊数分析表 | 93 | ほぼ忠実 | 室数表示・タイプスライサー実機能が軽微欠落 |
 | dashboard 指標サマリー | 86 | ほぼ忠実 | ヘッダー「詳細分析へ」ボタン欠落 |
-| booking-curve | 78 | ほぼ忠実 | 指標マルチセレクタ欠落・二軸→単軸縮退 |
+| booking-curve | 98 | 完全一致 | mart拡張(売上)で4指標(販売室数/売上/ADR/稼働率)・当年vs前年・二軸4系列・KPI撤去まで一致(2026-06-22) |
 | occupancy 稼働分析 | 68 | 部分的 | 全施設ビュー＋比較モード欠落・余計なトレンドchart |
 | annual-sales 全施設年間売上 | 68 | 部分的 | 12月×15施設クロスタブ→施設別フラットリスト |
 | nationalities 国籍別 | 62 | 部分的 | 国籍×12月クロスタブ→国籍×指標ピボット（月軸消失） |
@@ -93,7 +93,7 @@
 - charts: **BarCell** プリミティブを移植（クロスタブ復元の前提部品）。
 
 ### Phase 2 — 欠落コントロール／状態の復元（FE中心）
-- booking-curve: 4ボタン指標マルチセレクタ＋すべて表示＋Ctrl/⌘ヒント（売上/ADR/稼働率はデータ未対応→非活性or注記）。
+- ~~booking-curve~~ **完了(2026-06-22)**: mart `booking_curve_lead_metrics` で売上/ADR/稼働率を実データ化。4指標マルチセレクタ＋すべて表示＋当年vs前年＋二軸4系列＋KPI撤去（案A実装）。
 - occupancy: 比較モードセレクタ（前年実績/前年同期/指定日付＋date入力/予算差）＋ UnconfirmedPanel。
 - channels: 当年/前年 Segmented トグル。
 - occupancy: ActualMatrix に**予算 tfoot 行**を追加（コルディオ2025-26で実データ表示）。
