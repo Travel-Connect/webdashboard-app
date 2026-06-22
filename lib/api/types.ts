@@ -297,6 +297,25 @@ export interface BookingCurveSummary {
   withoutCancelled: CurveTotals;
 }
 
+// ブッキングカーブ matrix（当年/前年 × キャンセル区分 × リードタイム別 累積）
+export interface BcCell {
+  rooms: number;
+  gross: number;
+  net: number;
+}
+export interface BookingCurveYear {
+  year: number;
+  withoutCancelled: BcCell[]; // 12 buckets, ordered
+  withCancelled: BcCell[];
+  sellable: number; // 期間の販売可能室数（稼働率の分母）
+}
+export interface BookingCurveMatrix {
+  facName: string;
+  buckets: { key: string; label: string }[]; // 12
+  current: BookingCurveYear;
+  previous: BookingCurveYear | null;
+}
+
 // 各エンドポイントの response 別名
 export type OccupancyResponse = DashboardResponse<OccupancySummary, OccupancyRow>;
 export interface ChannelsResponse extends DashboardResponse<ChannelSummary, ChannelRow> {
@@ -310,7 +329,9 @@ export interface NationalitiesResponse extends DashboardResponse<NationalitySumm
   matrix: NationalityMatrix;
 }
 export type StayNightsResponse = DashboardResponse<StayNightsSummary, StayNightsRow>;
-export type BookingCurveResponse = DashboardResponse<BookingCurveSummary, BookingCurveRow>;
+export interface BookingCurveResponse extends DashboardResponse<BookingCurveSummary, BookingCurveRow> {
+  matrix: BookingCurveMatrix;
+}
 export interface AnnualSalesResponse extends DashboardResponse<AnnualSalesSummary, AnnualSalesRow> {
   matrix: AnnualMatrix;
 }
