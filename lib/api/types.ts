@@ -192,6 +192,25 @@ export interface RoomTypeRow {
   adr: number | null;
 }
 
+// 部屋タイプ×12ヶ月 クロスタブ（指標はフロントで base measures から算出）
+export interface RtCell {
+  rev: number;
+  rooms: number;
+  guests: number;
+}
+export interface RtMatrixRow {
+  roomType: string;
+  months: RtCell[]; // length 12, index0 = 1月
+  total: RtCell;
+}
+export interface RoomTypeMatrix {
+  facName: string;
+  year: number;
+  rows: RtMatrixRow[]; // 売上合計の降順
+  colTotals: RtCell[]; // length 12
+  grand: RtCell;
+}
+
 // ---- 6. 全施設年間売上 ----
 export interface AnnualSalesRow {
   facilityId: string;
@@ -261,7 +280,9 @@ export interface ChannelsResponse extends DashboardResponse<ChannelSummary, Chan
   matrix: ChannelMatrix;
   matrixPrevious?: ChannelMatrix | null;
 }
-export type RoomTypesResponse = DashboardResponse<RoomTypeRow, RoomTypeRow>;
+export interface RoomTypesResponse extends DashboardResponse<RoomTypeRow, RoomTypeRow> {
+  matrix: RoomTypeMatrix;
+}
 export interface NationalitiesResponse extends DashboardResponse<NationalitySummary, NationalityRow> {
   matrix: NationalityMatrix;
 }

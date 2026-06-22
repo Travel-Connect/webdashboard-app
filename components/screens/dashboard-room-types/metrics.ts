@@ -1,53 +1,31 @@
 /* ============================================================
-   metrics.ts — 部屋タイプ別分析 screen-local metric definitions.
-
-   The live /api/dashboard/room-types endpoint returns one aggregated
-   RoomTypeRow per room type (no month dimension, no occupancy /
-   companion coefficient). So the prototype's roomType×month cross-tab
-   cannot be reproduced; instead we pivot roomType × metric over the
-   metrics the API actually provides.
+   metrics.ts — 部屋タイプ別分析の指標カタログ（docs/.../screens-roomtypes.jsx 準拠）。
+   各指標は base measures（RtCell）から算出（セル＝合計同式）。
+   ※ 消化率(occ) は部屋タイプ別の客室在庫が無いため未対応（mart に room-type 在庫なし）。
    ============================================================ */
 
-import type { RoomTypeRow } from "@/lib/api/types";
-import { integer, yen } from "@/lib/dashboard/format";
+import type { RtCell } from "@/lib/api/types";
+import { integer } from "@/lib/dashboard/format";
 
-export type MetricUnit = "yen" | "int";
+/** 統一アクセント（primary blue, RT_TEAL）。 */
+export const RT_TEAL = "37,111,219";
+
+export type RtMetricId = "rev" | "rooms" | "adr" | "comp";
+export type RtHeat = "share" | "none";
 
 export interface RtMetric {
-  id: keyof Pick<
-    RoomTypeRow,
-    "revenue" | "soldRoomNights" | "adr" | "guestCount" | "reservationCount"
-  >;
+  id: RtMetricId;
   label: string;
-  unit: MetricUnit;
-  /** Heat-shade cells by within-metric share (sums to a total). */
-  heat: boolean;
-  /** ADR is an average, not summable -> footer shows blended avg, no heat. */
-  averaged?: boolean;
+  compute: (c: RtCell) => number;
+  fmt: (v: number) => string;
+  heat: RtHeat;
 }
+
+const dec2v = (v: number): string => v.toFixed(2);
 
 export const RT_METRICS: RtMetric[] = [
-  { id: "revenue", label: "売上", unit: "yen", heat: true },
-  { id: "soldRoomNights", label: "販売室数", unit: "int", heat: true },
-  { id: "adr", label: "ADR", unit: "yen", heat: false, averaged: true },
-  { id: "guestCount", label: "宿泊人数", unit: "int", heat: true },
-  { id: "reservationCount", label: "予約件数", unit: "int", heat: true },
+  { id: "rev", label: "売上", compute: (c) => c.rev, fmt: integer, heat: "share" },
+  { id: "rooms", label: "販売室数", compute: (c) => c.rooms, fmt: integer, heat: "share" },
+  { id: "adr", label: "ADR", compute: (c) => (c.rooms ? c.rev / c.rooms : 0), fmt: integer, heat: "none" },
+  { id: "comp", label: "同伴係数", compute: (c) => (c.rooms ? c.guests / c.rooms : 0), fmt: dec2v, heat: "none" },
 ];
-
-/** Format a metric value, returning "—" for null/NaN (e.g. ADR with 0 nights). */
-export function fmtMetric(v: number | null | undefined, unit: MetricUnit): string {
-  if (v == null || Number.isNaN(v)) return "—";
-  return unit === "yen" ? yen(v) : integer(v);
-}
-
-/** Stable color per room-type rank (mirrors the prototype's accent palette). */
-export const RT_COLORS = [
-  "var(--c-blue)",
-  "var(--c-teal)",
-  "var(--c-amber)",
-  "var(--c-violet)",
-  "var(--c-rose)",
-  "var(--c-gray)",
-];
-
-export const colorFor = (i: number): string => RT_COLORS[i % RT_COLORS.length];
