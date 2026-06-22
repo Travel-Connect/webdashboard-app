@@ -225,6 +225,29 @@ export interface AnnualSalesRow {
   budgetAchievementRate?: number | null;
 }
 
+// 12ヶ月(行) × 施設(列) クロスタブ。指標(実績/予算/達成率/予算差)はフロントで算出。
+export interface AnnualCell {
+  actual: number;
+  budget: number | null; // null = 予算未登録
+}
+export interface AnnualMatrixFacility {
+  id: string;
+  name: string;
+  area: string;
+}
+export interface AnnualMonthRow {
+  month: number; // 1-12
+  cells: Record<string, AnnualCell>; // facilityId -> cell
+  total: AnnualCell; // その月の全施設合計
+}
+export interface AnnualMatrix {
+  year: number;
+  facilities: AnnualMatrixFacility[]; // 列（display_order 昇順・エリアグループ）
+  rows: AnnualMonthRow[]; // 12ヶ月
+  facilityTotals: Record<string, AnnualCell>; // 施設ごと年間合計（合計行）
+  grand: AnnualCell;
+}
+
 // ---- 7. ブッキングカーブ ----
 export type CancelScope = "with_cancelled" | "without_cancelled";
 export interface BookingCurveRow {
@@ -288,4 +311,6 @@ export interface NationalitiesResponse extends DashboardResponse<NationalitySumm
 }
 export type StayNightsResponse = DashboardResponse<StayNightsSummary, StayNightsRow>;
 export type BookingCurveResponse = DashboardResponse<BookingCurveSummary, BookingCurveRow>;
-export type AnnualSalesResponse = DashboardResponse<AnnualSalesSummary, AnnualSalesRow>;
+export interface AnnualSalesResponse extends DashboardResponse<AnnualSalesSummary, AnnualSalesRow> {
+  matrix: AnnualMatrix;
+}
