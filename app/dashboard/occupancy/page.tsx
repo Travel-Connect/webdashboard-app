@@ -9,6 +9,7 @@
    ============================================================ */
 
 import useSWR from "swr";
+import { useMemo } from "react";
 import { useFilters } from "@/lib/dashboard/use-filters";
 import { useDashboardQuery } from "@/lib/dashboard/client";
 import {
@@ -16,7 +17,6 @@ import {
   Btn,
   EmptyState,
   LoadingSkeleton,
-  Badge,
 } from "@/components/ui/primitives";
 import { Icon } from "@/components/ui/icon";
 import { yen, integer, percent } from "@/lib/dashboard/format";
@@ -26,7 +26,6 @@ import { OccKpiStrip } from "@/components/screens/dashboard-occupancy/kpi-strip"
 import { ActualMatrix } from "@/components/screens/dashboard-occupancy/matrix";
 import { CompareMatrix } from "@/components/screens/dashboard-occupancy/compare-matrix";
 import { MatrixCol } from "@/components/screens/dashboard-occupancy/matrix-col";
-import { OccTrend } from "@/components/screens/dashboard-occupancy/trend";
 
 const facilitiesFetcher = (url: string) =>
   fetch(url, { headers: { Accept: "application/json" } }).then((r) => r.json());
@@ -34,7 +33,15 @@ const facilitiesFetcher = (url: string) =>
 export default function OccupancyPage() {
   const { filters } = useFilters();
   const monthMode = filters.period === "yearly"; // yearly → monthly rows, monthly → daily rows
-  const { data, error, isLoading } = useDashboardQuery("occupancy", filters);
+
+  // 稼働分析は「当年実績 / 前年実績比 / 前年実績」の3列を常に見せる設計。
+  // そのため比較は常に前年実績で取得する（Phase 2 で 前年同期/指定日付/予算差 の
+  // 比較モードセレクタを追加し、中央列の基準を切り替えられるようにする）。
+  const occFilters = useMemo(
+    () => ({ ...filters, compareWith: "previous_year" as const }),
+    [filters],
+  );
+  const { data, error, isLoading } = useDashboardQuery("occupancy", occFilters);
 
   // facility display name for the subtitle (best-effort; gracefully degrades)
   const { data: facilities } = useSWR<FacilityOption[]>(
@@ -58,6 +65,7 @@ export default function OccupancyPage() {
   const cmp = data?.comparison ?? null;
   const baseline = cmp?.rows ?? null;
   const isPY = cmp?.basis === "previous_year";
+  const hasCmp = isPY && baseline != null && baseline.length > 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -152,31 +160,11 @@ export default function OccupancyPage() {
           {/* KPI strip */}
           <OccKpiStrip summary={summary} metrics={isPY ? cmp?.metrics : null} />
 
-          {/* trend */}
-          <Panel
-            title="稼働トレンド"
-            sub={`売上（棒）× 稼働率（線）${baseline ? " · 前年稼働率（破線）" : ""}`}
-            actions={
-              summary.sellableRoomNights === 0 ? (
-                <Badge tone="warning" icon="TriangleAlert">
-                  販売可能室数 未登録
-                </Badge>
-              ) : undefined
-            }
-          >
-            <OccTrend
-              rows={rows}
-              baseline={baseline}
-              monthMode={monthMode}
-              height={monthMode ? 240 : 220}
-            />
-          </Panel>
-
-          {/* matrix band */}
+          {/* matrix band — デザインに無い稼働トレンドchartは撤去（プロト準拠） */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: isPY ? "1fr 0.86fr 1fr" : "1fr",
+              gridTemplateColumns: hasCmp ? "1fr 0.86fr 1fr" : "1fr",
               gap: 10,
               alignItems: "stretch",
             }}
@@ -193,7 +181,7 @@ export default function OccupancyPage() {
               </div>
             </MatrixCol>
 
-            {isPY && baseline && (
+            {hasCmp && baseline && (
               <>
                 <MatrixCol title="前年実績比" sub="当年 − 前年" accent="var(--c-amber)">
                   <div style={{ maxHeight: 520 }}>

@@ -14,6 +14,7 @@ import { useDashboardQuery } from "@/lib/dashboard/client";
 import { StatCard, KpiGrid } from "@/components/ui/stat-card";
 import {
   Panel,
+  Btn,
   EmptyState,
   LoadingSkeleton,
 } from "@/components/ui/primitives";
@@ -101,6 +102,7 @@ export default function ChannelsPage() {
               marginTop: 3,
             }}
           >
+            {filters.facilityId === "all" ? "全施設横断 · " : ""}
             {periodLabel} · {taxLabel}表示
             {summary ? (
               <>
@@ -112,6 +114,7 @@ export default function ChannelsPage() {
             ) : null}
           </div>
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <button
           type="button"
           onClick={() => setHideZero((z) => !z)}
@@ -135,6 +138,10 @@ export default function ChannelsPage() {
           売上0の経路を隠す
           {hiddenN > 0 && hideZero ? `（${hiddenN}）` : ""}
         </button>
+          <Btn variant="default" icon="FileDown" size="sm">
+            エクスポート
+          </Btn>
+        </div>
       </div>
 
       {/* KPI cards */}

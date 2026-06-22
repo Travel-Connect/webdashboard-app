@@ -7,6 +7,7 @@
    ============================================================ */
 
 import { useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useFilters } from "@/lib/dashboard/use-filters";
 import { useDashboardQuery } from "@/lib/dashboard/client";
 import { Icon } from "@/components/ui/icon";
@@ -36,6 +37,7 @@ function metricRate(
 
 export default function DashboardOverviewPage() {
   const { filters } = useFilters();
+  const router = useRouter();
 
   const occQ = useDashboardQuery("occupancy", filters);
   const chQ = useDashboardQuery("channels", filters);
@@ -210,6 +212,14 @@ export default function DashboardOverviewPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Btn variant="default" icon="FileDown" size="sm">
             エクスポート
+          </Btn>
+          <Btn
+            variant="default"
+            icon="Maximize2"
+            size="sm"
+            onClick={() => router.push("/dashboard/occupancy")}
+          >
+            詳細分析へ
           </Btn>
         </div>
       </div>
