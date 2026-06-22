@@ -2,85 +2,76 @@
 
 /* ============================================================
    経路分析 (Channels) — app/dashboard/channels/page.tsx
-   Ported from docs/.../screens-stub.jsx (ChannelsScreen).
+   経路×施設（月間）/ 経路×月（年間）クロスタブ。
+   Ported from docs/.../screens-stub.jsx (ChannelsMonthly / ChannelsAnnual).
    Live endpoint: /api/dashboard/channels -> ChannelsResponse
-   (flat ChannelRow[] + ChannelSummary; cross-tab matrix of the
-   prototype is not available from this contract — see note).
+   (matrix + matrixPrevious; the 当年/前年 toggle picks which to render).
    ============================================================ */
 
 import { useMemo, useState } from "react";
+import useSWR from "swr";
 import { useFilters } from "@/lib/dashboard/use-filters";
 import { useDashboardQuery } from "@/lib/dashboard/client";
-import { StatCard, KpiGrid } from "@/components/ui/stat-card";
 import {
   Panel,
   Btn,
   EmptyState,
   LoadingSkeleton,
+  Segmented,
 } from "@/components/ui/primitives";
 import { Icon } from "@/components/ui/icon";
-import { DonutChart } from "@/components/charts";
-import { yen, yenCompact, integer, EM_DASH } from "@/lib/dashboard/format";
-import { ChannelTable } from "@/components/screens/dashboard-channels/channel-table";
+import { yenCompact } from "@/lib/dashboard/format";
+import { ChannelMatrixTable } from "@/components/screens/dashboard-channels/channel-matrix";
+import type { FacilityOption } from "@/app/api/facilities/route";
 
-/* donut palette (cycled across top channels) */
-const DONUT_COLORS = [
-  "var(--c-blue)",
-  "var(--c-teal)",
-  "var(--c-violet)",
-  "var(--c-amber)",
-  "var(--c-rose)",
-  "var(--c-gray)",
-];
-const DONUT_TOP = 6;
+const facilitiesFetcher = (url: string) =>
+  fetch(url, { headers: { Accept: "application/json" } }).then((r) => r.json());
 
 export default function ChannelsPage() {
   const { filters } = useFilters();
-  const { data, error, isLoading } = useDashboardQuery("channels", filters);
+  // 当年/前年トグルのため常に前年も取得（compareWith を固定）。
+  const chFilters = useMemo(
+    () => ({ ...filters, compareWith: "previous_year" as const }),
+    [filters],
+  );
+  const { data, error, isLoading } = useDashboardQuery("channels", chFilters);
   const [hideZero, setHideZero] = useState(true);
+  const [view, setView] = useState<"cur" | "py">("cur");
+
+  const { data: facilities } = useSWR<FacilityOption[]>("/api/facilities", facilitiesFetcher);
+  const facName =
+    filters.facilityId === "all"
+      ? "全施設"
+      : (facilities?.find((f) => f.id === filters.facilityId)?.displayName ?? "施設");
 
   const taxLabel = filters.taxMode === "gross" ? "税込" : "税抜";
-  const periodLabel =
-    filters.period === "monthly"
-      ? `${filters.year}年${filters.month ?? ""}月`
-      : `${filters.year}年（年間）`;
+  const isMonthly = filters.period === "monthly";
 
-  const allRows = useMemo(() => data?.rows ?? [], [data]);
-  const rows = useMemo(
-    () => (hideZero ? allRows.filter((r) => r.revenue > 0) : allRows),
-    [allRows, hideZero],
-  );
-  const hiddenN = allRows.length - rows.length;
-  const hasYoy = allRows.some(
-    (r) => r.previousYearRevenue != null || r.yoyRate != null,
-  );
+  const matrixCur = data?.matrix ?? null;
+  const matrixPy = data?.matrixPrevious ?? null;
+  const hasPy = !!matrixPy && matrixPy.rows.length > 0;
+  const matrix = view === "py" && hasPy ? matrixPy : matrixCur;
 
-  /* donut: top channels by revenue, remainder folded into その他 */
-  const donutData = useMemo(() => {
-    const sorted = [...rows]
-      .filter((r) => r.revenue > 0)
-      .sort((a, b) => b.revenue - a.revenue);
-    const top = sorted.slice(0, DONUT_TOP);
-    const rest = sorted.slice(DONUT_TOP);
-    const out = top.map((r, i) => ({
-      label: r.channel,
-      value: r.revenue,
-      color: DONUT_COLORS[i % DONUT_COLORS.length],
-    }));
-    if (rest.length) {
-      out.push({
-        label: `その他（${rest.length}）`,
-        value: rest.reduce((s, r) => s + r.revenue, 0),
-        color: "var(--c-gray)",
-      });
-    }
-    return out;
-  }, [rows]);
+  const shownYear = view === "py" ? filters.year - 1 : filters.year;
+  const shownPeriodLabel = isMonthly
+    ? `${shownYear}年${filters.month ?? ""}月`
+    : `${shownYear}年（月次）`;
 
-  const summary = data?.summary;
+  const grand = matrix?.grandTotal ?? 0;
+  const hiddenN = matrix ? matrix.rows.filter((r) => r.total === 0).length : 0;
+  const nFac = matrixCur?.columnKind === "facility" ? matrixCur.columns.length : 0;
+  const scopeLabel = isMonthly ? `全施設横断（${nFac}施設）` : facName;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div
+      style={{
+        height: "calc(100dvh - 150px)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+        overflow: "hidden",
+      }}
+    >
       {/* title + toolbar */}
       <div
         style={{
@@ -89,83 +80,72 @@ export default function ChannelsPage() {
           justifyContent: "space-between",
           gap: 12,
           flexWrap: "wrap",
+          flexShrink: 0,
         }}
       >
-        <div>
-          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800 }}>
-            経路別実績一覧
-          </h2>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800 }}>経路別実績一覧</h2>
           <div
             style={{
               fontSize: 12.5,
               color: "var(--text-2)",
               marginTop: 3,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
           >
-            {filters.facilityId === "all" ? "全施設横断 · " : ""}
-            {periodLabel} · {taxLabel}表示
-            {summary ? (
+            {scopeLabel} · {shownPeriodLabel}
+            {view === "py" ? "（前年）" : ""} · {taxLabel}表示
+            {matrix ? (
               <>
-                {" "}· 売上合計{" "}
+                {" "}· {isMonthly ? "売上合計" : "年間売上"}{" "}
                 <strong className="tabular" style={{ color: "var(--text)" }}>
-                  {yenCompact(summary.totalRevenue)}
+                  {yenCompact(grand)}
                 </strong>
               </>
             ) : null}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <button
-          type="button"
-          onClick={() => setHideZero((z) => !z)}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            height: 32,
-            padding: "0 11px",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--r-md)",
-            background: hideZero ? "var(--primary-weak)" : "var(--surface)",
-            color: hideZero ? "var(--primary-ink)" : "var(--text-2)",
-            fontSize: 12.5,
-            fontWeight: 600,
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-          }}
-        >
-          <Icon name={hideZero ? "EyeOff" : "Eye"} size={14} />
-          売上0の経路を隠す
-          {hiddenN > 0 && hideZero ? `（${hiddenN}）` : ""}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <Segmented
+            size="sm"
+            value={view}
+            onChange={(v) => setView(v as "cur" | "py")}
+            options={[
+              { value: "cur", label: "当年" },
+              { value: "py", label: "前年" },
+            ]}
+          />
+          <button
+            type="button"
+            onClick={() => setHideZero((z) => !z)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              height: 32,
+              padding: "0 11px",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-md)",
+              background: hideZero ? "var(--primary-weak)" : "var(--surface)",
+              color: hideZero ? "var(--primary-ink)" : "var(--text-2)",
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <Icon name={hideZero ? "EyeOff" : "Eye"} size={14} />
+            売上0の経路を隠す{hiddenN > 0 && hideZero ? `（${hiddenN}）` : ""}
+          </button>
           <Btn variant="default" icon="FileDown" size="sm">
             エクスポート
           </Btn>
         </div>
       </div>
 
-      {/* KPI cards */}
-      <KpiGrid minWidth={240}>
-        <StatCard
-          label="総売上"
-          value={summary ? yen(summary.totalRevenue) : EM_DASH}
-          sub={taxLabel}
-          icon="Banknote"
-        />
-        <StatCard
-          label="総販売室数"
-          value={summary ? integer(summary.totalSoldRoomNights) : EM_DASH}
-          sub="室"
-          icon="BedDouble"
-        />
-        <StatCard
-          label="経路数"
-          value={summary ? integer(summary.channelCount) : EM_DASH}
-          sub="売上のある経路"
-          icon="Route"
-        />
-      </KpiGrid>
-
+      {/* body */}
       {error ? (
         <Panel>
           <EmptyState
@@ -176,9 +156,9 @@ export default function ChannelsPage() {
         </Panel>
       ) : isLoading && !data ? (
         <Panel title="経路別実績">
-          <LoadingSkeleton rows={6} />
+          <LoadingSkeleton rows={8} />
         </Panel>
-      ) : allRows.length === 0 ? (
+      ) : !matrix || matrix.rows.length === 0 ? (
         <Panel>
           <EmptyState
             icon="Inbox"
@@ -187,41 +167,14 @@ export default function ChannelsPage() {
           />
         </Panel>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gap: 16,
-            gridTemplateColumns: "minmax(280px, 360px) 1fr",
-            alignItems: "start",
-          }}
-        >
-          <Panel title="売上構成比" sub={`上位経路（${taxLabel}）`}>
-            {donutData.length ? (
-              <DonutChart
-                data={donutData}
-                size={200}
-                thickness={28}
-                centerLabel={yenCompact(summary?.totalRevenue ?? 0)}
-                centerSub="総売上"
-                valueFmt={(v) => yenCompact(v)}
-              />
-            ) : (
-              <EmptyState icon="ChartPie" title="表示できる構成がありません" />
-            )}
-          </Panel>
-
-          <Panel
-            title="経路別実績"
-            sub={`${rows.length}経路`}
-            pad={false}
-          >
-            <ChannelTable
-              rows={rows}
-              hasYoy={hasYoy}
-              totalRevenue={summary?.totalRevenue ?? 0}
-            />
-          </Panel>
-        </div>
+        <ChannelMatrixTable
+          matrix={matrix}
+          taxLabel={taxLabel}
+          hideZero={hideZero}
+          selectedColKey={
+            isMonthly && filters.facilityId !== "all" ? filters.facilityId : null
+          }
+        />
       )}
     </div>
   );

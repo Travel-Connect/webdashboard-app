@@ -105,6 +105,29 @@ export interface ChannelRow {
   yoyRate?: number | null;
 }
 
+// 経路×施設（月間）/ 経路×月（年間）クロスタブ
+export interface ChannelMatrixColumn {
+  /** facility id (columnKind=facility) or month number "1".."12" (columnKind=month). */
+  key: string;
+  label: string;
+  /** area name — groups the facility super-header; undefined for month columns. */
+  group?: string;
+}
+export interface ChannelMatrixRow {
+  channel: string;
+  total: number;
+  /** column key -> revenue */
+  cells: Record<string, number>;
+}
+export interface ChannelMatrix {
+  columnKind: "facility" | "month";
+  /** yearly only: "{facName} · {year}年" spanning all month columns. */
+  groupLabel?: string;
+  columns: ChannelMatrixColumn[];
+  rows: ChannelMatrixRow[];
+  grandTotal: number;
+}
+
 // ---- 3. 国籍別分析 ----
 export interface NationalityRow {
   countryMajor: string;
@@ -209,7 +232,10 @@ export interface BookingCurveSummary {
 
 // 各エンドポイントの response 別名
 export type OccupancyResponse = DashboardResponse<OccupancySummary, OccupancyRow>;
-export type ChannelsResponse = DashboardResponse<ChannelSummary, ChannelRow>;
+export interface ChannelsResponse extends DashboardResponse<ChannelSummary, ChannelRow> {
+  matrix: ChannelMatrix;
+  matrixPrevious?: ChannelMatrix | null;
+}
 export type RoomTypesResponse = DashboardResponse<RoomTypeRow, RoomTypeRow>;
 export type NationalitiesResponse = DashboardResponse<NationalitySummary, NationalityRow>;
 export type StayNightsResponse = DashboardResponse<StayNightsSummary, StayNightsRow>;
