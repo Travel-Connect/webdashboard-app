@@ -58,22 +58,24 @@ function DeltaInv({ value, unit }: { value: number | null; unit: string }) {
 
 export interface OccKpiStripProps {
   summary: OccupancySummary;
-  /** previous_year metrics from response.comparison (null when not requested) */
+  /** comparison.metrics from response (null when no comparison) */
   metrics?: MetricComparison[] | null;
+  /** delta caption: "前年" (previous_year) / "予算" (budget) */
+  compareLabel?: string;
 }
 
-export function OccKpiStrip({ summary, metrics }: OccKpiStripProps) {
+export function OccKpiStrip({ summary, metrics, compareLabel = "前年" }: OccKpiStripProps) {
   const s = summary;
   const list: KpiDef[] = [
     { label: "稼働率", type: "pct", value: pct100(s.occupancyRate), cmpKey: "occupancyRate", primary: true },
-    { label: "売上", type: "yen", value: s.roomRevenue, cmpKey: "roomRevenue" },
+    { label: "客室販売金額", type: "yen", value: s.roomRevenue, cmpKey: "roomRevenue" },
     { label: "販売室数", type: "int", value: s.soldRoomNights, cmpKey: "soldRoomNights", unit: "室" },
     { label: "残室数", type: "int", value: s.remainingRoomNights, unit: "室", invert: true },
     { label: "宿泊人数", type: "int", value: s.guestCount, cmpKey: "guestCount", unit: "名" },
-    { label: "ADR", type: "yen", value: s.adr, cmpKey: "adr" },
+    { label: "平均室単価", type: "yen", value: s.adr, cmpKey: "adr" },
     { label: "RevPAR", type: "yen", value: s.revpar, cmpKey: "revpar" },
     { label: "客単価", type: "yen", value: s.guestUnitPrice },
-    { label: "平均人数", type: "ratio", value: s.avgGuestsPerRoom, unit: "名" },
+    { label: "同伴係数", type: "ratio", value: s.avgGuestsPerRoom, unit: "名" },
   ];
 
   const byKey = new Map((metrics ?? []).map((m) => [m.metric, m]));
@@ -142,7 +144,7 @@ export function OccKpiStrip({ summary, metrics }: OccKpiStripProps) {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
               <span style={{ fontSize: 10, color: primary ? "rgba(255,255,255,.55)" : "var(--text-3)" }}>
-                前年
+                {compareLabel}
               </span>
               {primary ? (
                 <DeltaInv value={cmpVal} unit={cmpUnit} />

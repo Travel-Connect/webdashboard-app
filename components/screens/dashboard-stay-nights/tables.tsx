@@ -109,8 +109,8 @@ interface TableProps {
 
 /* ---------------- 販売室数 ---------------- */
 export function RoomsTable({ rows, year, prior, headTop }: TableProps) {
-  const tot = columnTotals(rows, "rooms");
-  const grand = tot.reduce((a, b) => a + b, 0);
+  const tot = columnTotals(rows, "resv");
+  const totNights = columnTotals(rows, "rooms").reduce((a, b) => a + b, 0);
   return (
     <div>
       <YearTab year={year} prior={prior} />
@@ -152,7 +152,7 @@ export function RoomsTable({ rows, year, prior, headTop }: TableProps) {
             return (
               <tr key={i} onMouseEnter={hoverOn} onMouseLeave={hoverOff}>
                 <td style={{ ...stTd, textAlign: "left", fontWeight: 600 }}>{STAY_MONTHS[r.month - 1]}</td>
-                {r.rooms.map((v, k) => (
+                {r.resv.map((v, k) => (
                   <td
                     key={k}
                     className="tabular"
@@ -187,7 +187,7 @@ export function RoomsTable({ rows, year, prior, headTop }: TableProps) {
               </td>
             ))}
             <td className="tabular" style={stTot}>
-              {stN(grand)}
+              {stN(totNights)}
             </td>
             <td style={stTot}></td>
             <td style={stTot}></td>
@@ -317,33 +317,27 @@ interface MetricTableProps extends TableProps {
 
 export function MetricTable({ rows, year, prior, headTop, metric, lastLabel, footLabel }: MetricTableProps) {
   const dash = metric === "comp";
+  // 表示丸めは Excel のセル書式（round half away from zero）。値自体は占有母数ベース
+  // （model 側で occRev/occGuest/occSold から算出）＝稼働分析と同基準。
   const fmt = (v: number | null | undefined): string => {
     if (v == null || isNaN(v)) return "—";
     if (dash) return v.toFixed(2); // 同伴係数
     return v === 0 ? "0" : stN(v); // ADR
   };
   const avgCols = metric === "adr" ? adrColumnAverages(rows) : compColumnAverages(rows);
-  // row average across that row's buckets (weighted)
+  const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+  // row average = Σ占有売上 or Σ宿泊人数 / Σ販売室数（稼働分析と同基準）。
   const rowAvg = (r: MonthRow): number | null => {
-    if (metric === "adr") {
-      const rev = r.revenue.reduce((a, b) => a + b, 0);
-      const rooms = r.rooms.reduce((a, b) => a + b, 0);
-      return rooms > 0 ? rev / rooms : null;
-    }
-    const guests = r.guests.reduce((a, b) => a + b, 0);
-    const resv = r.resv.reduce((a, b) => a + b, 0);
-    return resv > 0 ? guests / resv : null;
+    const sold = sum(r.occSold);
+    if (sold <= 0) return null;
+    return (metric === "adr" ? sum(r.occRev) : sum(r.occGuest)) / sold;
   };
   // grand average column footer
   const grandAvg = ((): number | null => {
-    if (metric === "adr") {
-      const rev = rows.reduce((s, r) => s + r.revenue.reduce((a, b) => a + b, 0), 0);
-      const rooms = rows.reduce((s, r) => s + r.rooms.reduce((a, b) => a + b, 0), 0);
-      return rooms > 0 ? rev / rooms : null;
-    }
-    const guests = rows.reduce((s, r) => s + r.guests.reduce((a, b) => a + b, 0), 0);
-    const resv = rows.reduce((s, r) => s + r.resv.reduce((a, b) => a + b, 0), 0);
-    return resv > 0 ? guests / resv : null;
+    const sold = rows.reduce((s, r) => s + sum(r.occSold), 0);
+    if (sold <= 0) return null;
+    const num = rows.reduce((s, r) => s + sum(metric === "adr" ? r.occRev : r.occGuest), 0);
+    return num / sold;
   })();
 
   return (

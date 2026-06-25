@@ -4,8 +4,11 @@
    /dashboard/occupancy — 稼働分析
    Renders the live occupancy endpoint with the shared foundation.
    Layout faithful to docs/.../screens-occupancy.jsx:
-     [title row] + [9-metric KPI strip] + [trend] + [matrix band].
-   Matrix band: 当年実績 (+ 前年実績 / 前年実績比 when compareWith=previous_year).
+     [title row] + [9-metric KPI strip] + [matrix band].
+   Matrix band は比較セレクタに応じて切替:
+     previous_year → 当年実績 + 前年実績比 + 前年実績
+     budget        → 当年実績 + 予算パネル（KPI は予算比）
+     previous_snapshot（指定日取込）→ 準備中（別プラン）
    ============================================================ */
 
 import useSWR from "swr";
@@ -17,6 +20,7 @@ import {
   Btn,
   EmptyState,
   LoadingSkeleton,
+  LoadingOverlay,
 } from "@/components/ui/primitives";
 import { Icon } from "@/components/ui/icon";
 import { yen, integer, percent } from "@/lib/dashboard/format";
@@ -26,6 +30,7 @@ import { OccKpiStrip } from "@/components/screens/dashboard-occupancy/kpi-strip"
 import { ActualMatrix } from "@/components/screens/dashboard-occupancy/matrix";
 import { CompareMatrix } from "@/components/screens/dashboard-occupancy/compare-matrix";
 import { MatrixCol } from "@/components/screens/dashboard-occupancy/matrix-col";
+import { TargetPanel } from "@/components/screens/dashboard-occupancy/target-panel";
 
 const facilitiesFetcher = (url: string) =>
   fetch(url, { headers: { Accept: "application/json" } }).then((r) => r.json());
@@ -34,20 +39,33 @@ export default function OccupancyPage() {
   const { filters } = useFilters();
   const monthMode = filters.period === "yearly"; // yearly → monthly rows, monthly → daily rows
 
-  // 稼働分析は「当年実績 / 前年実績比 / 前年実績」の3列を常に見せる設計。
-  // そのため比較は常に前年実績で取得する（Phase 2 で 前年同期/指定日付/予算差 の
-  // 比較モードセレクタを追加し、中央列の基準を切り替えられるようにする）。
+  // 比較セレクタ（なし/前年実績/予算/前回取込）を反映する。
+  // 「なし」（未選択）は従来挙動を維持するため前年実績にフォールバック。
+  // 予算 → budget basis、前回取込（指定日取込）は API 側で未対応（比較なし）。
   const occFilters = useMemo(
-    () => ({ ...filters, compareWith: "previous_year" as const }),
+    () => ({
+      ...filters,
+      compareWith: filters.compareWith ?? ("previous_year" as const),
+    }),
     [filters],
   );
-  const { data, error, isLoading } = useDashboardQuery("occupancy", occFilters);
+  const { data, error, isLoading, isValidating } = useDashboardQuery(
+    "occupancy",
+    occFilters,
+  );
 
   // facility display name for the subtitle (best-effort; gracefully degrades)
   const { data: facilities } = useSWR<FacilityOption[]>(
     "/api/facilities",
     facilitiesFetcher,
   );
+  // 当年実績(ライブデータ)が何日時点か（最終取込日）
+  const { data: freshness } = useSWR<{ dataAsOf: string | null }>(
+    "/api/dashboard/data-freshness",
+    facilitiesFetcher,
+    { revalidateOnFocus: false },
+  );
+  const dataAsOf = freshness?.dataAsOf ?? null;
   const facName =
     filters.facilityId === "all"
       ? "全施設"
@@ -64,11 +82,22 @@ export default function OccupancyPage() {
   const rows = data?.rows ?? [];
   const cmp = data?.comparison ?? null;
   const baseline = cmp?.rows ?? null;
-  const isPY = cmp?.basis === "previous_year";
-  const hasCmp = isPY && baseline != null && baseline.length > 0;
+  const basis = cmp?.basis ?? null;
+  const isPY = basis === "previous_year";
+  const isBudget = basis === "budget";
+  const isSnap = basis === "previous_snapshot";
+  const isBudgetYear = isBudget && monthMode;   // 年間予算 → 当年実績｜予算差｜予算 の3列帯
+  const isBudgetMonth = isBudget && !monthMode; // 月間予算 → 年間予算へ誘導（日別予算なし）
+  // 3列帯（当年実績｜差分｜基準実績）＝前年実績 / 指定日取込 / 年間予算（いずれも基準行を持つ）
+  const cmpBand = (isPY || isSnap || isBudgetYear) && baseline != null && baseline.length > 0;
+  const lbl = compareLabels(basis, filters.year, cmp?.asOf); // 列タイトル・KPIラベル
+  const requestedBasis = occFilters.compareWith; // API へ送った比較基準
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, position: "relative" }}>
+      {/* 再取得中オーバーレイ（旧データを見せつつ上に重ねる） */}
+      {!error && data && isValidating && <LoadingOverlay />}
+
       {/* ---------- title row ---------- */}
       <div
         style={{
@@ -158,19 +187,31 @@ export default function OccupancyPage() {
       {!error && summary && rows.length > 0 && (
         <>
           {/* KPI strip */}
-          <OccKpiStrip summary={summary} metrics={isPY ? cmp?.metrics : null} />
+          <OccKpiStrip
+            summary={summary}
+            metrics={cmp ? cmp.metrics : null}
+            compareLabel={lbl.kpiLabel}
+          />
 
-          {/* matrix band — デザインに無い稼働トレンドchartは撤去（プロト準拠） */}
+          {/* matrix band — デザインに無い稼働トレンドchartは撤去（プロト準拠）
+              幅が足りない時は横スクロールせず行内で折り返す（auto-fit）。 */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: hasCmp ? "1fr 0.86fr 1fr" : "1fr",
-              gap: 10,
-              alignItems: "stretch",
+              gridTemplateColumns:
+                cmpBand || isBudgetMonth
+                  ? `repeat(auto-fit, minmax(${monthMode ? 516 : 446}px, 1fr))`
+                  : "1fr",
+              gap: 8,
+              alignItems: isBudgetMonth ? "start" : "stretch",
             }}
           >
-            <MatrixCol title="当年実績" sub={periodLabel} accent="var(--c-blue)">
-              <div style={{ maxHeight: 520, padding: 0 }}>
+            <MatrixCol
+              title="当年実績"
+              sub={dataAsOf ? `${periodLabel}・${dataAsOf} 取込時点` : periodLabel}
+              accent="var(--c-blue)"
+            >
+              <div style={{ padding: 0 }}>
                 <ActualMatrix
                   rows={rows}
                   total={summary}
@@ -181,26 +222,23 @@ export default function OccupancyPage() {
               </div>
             </MatrixCol>
 
-            {hasCmp && baseline && (
+            {/* 差分 + 基準実績（previous_year / previous_snapshot / 年間予算） */}
+            {cmpBand && baseline && (
               <>
-                <MatrixCol title="前年実績比" sub="当年 − 前年" accent="var(--c-amber)">
-                  <div style={{ maxHeight: 520 }}>
+                <MatrixCol title={lbl.midTitle} sub={lbl.midSub} accent="var(--c-amber)">
+                  <div>
                     <CompareMatrix
                       rows={rows}
                       baseline={baseline}
                       monthMode={monthMode}
                       rowH={monthMode ? 26 : undefined}
-                      footLabel={monthMode ? "年間差分" : "月間差分"}
+                      footLabel={isBudget ? "予算差" : monthMode ? "年間差分" : "月間差分"}
                     />
                   </div>
                 </MatrixCol>
 
-                <MatrixCol
-                  title="前年実績"
-                  sub={`${filters.year - 1}年`}
-                  accent="var(--c-gray)"
-                >
-                  <div style={{ maxHeight: 520 }}>
+                <MatrixCol title={lbl.rightTitle} sub={lbl.rightSub} accent="var(--c-gray)">
+                  <div>
                     <ActualMatrix
                       rows={baseline}
                       total={baselineTotal(baseline)}
@@ -212,7 +250,71 @@ export default function OccupancyPage() {
                 </MatrixCol>
               </>
             )}
+
+            {/* 月間予算: 日別予算が無いため年間表示へ誘導 */}
+            {isBudgetMonth && cmp && (
+              <MatrixCol title="予算" sub={`${filters.year}年 計画`} accent="var(--c-amber)">
+                <div
+                  style={{
+                    padding: "18px 20px",
+                    fontSize: 13,
+                    lineHeight: 1.8,
+                    color: "var(--text-2)",
+                  }}
+                >
+                  <Icon
+                    name="Target"
+                    size={16}
+                    style={{ color: "var(--text-3)", marginRight: 6, verticalAlign: "-3px" }}
+                  />
+                  月間ビューには日別の予算がありません。
+                  <br />
+                  予算との比較は{" "}
+                  <strong style={{ color: "var(--text)" }}>「年間」表示</strong>{" "}
+                  で年間予算をご確認ください。
+                </div>
+              </MatrixCol>
+            )}
           </div>
+
+          {/* A室数の試算（残室を埋める目標単価・前年比） */}
+          <TargetPanel targeting={data.targeting} taxMode={filters.taxMode} />
+
+          {/* 予算未登録（budget 選択だが対象データなし） */}
+          {requestedBasis === "budget" && !cmp && (
+            <Panel>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 12.5,
+                  color: "var(--text-2)",
+                }}
+              >
+                <Icon name="Target" size={15} style={{ color: "var(--text-3)" }} />
+                選択中の施設・期間に予算が登録されていないため、予算比較を表示できません（予算はコルディオ 2025–2026 のみ）。
+              </div>
+            </Panel>
+          )}
+
+          {/* 指定日取込: スナップショット未投入で比較不可 */}
+          {requestedBasis === "previous_snapshot" && !cmp && (
+            <Panel>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 12.5,
+                  color: "var(--text-2)",
+                }}
+              >
+                <Icon name="History" size={15} style={{ color: "var(--text-3)" }} />
+                指定日取込のスナップショットがまだ投入されていません（取込日を選択するか、バックフィル完了をお待ちください）。
+              </div>
+            </Panel>
+          )}
 
           {/* sellable-missing notice (occupancy / RevPAR are null without inventory) */}
           {summary.occupancyRate == null && (
@@ -236,6 +338,41 @@ export default function OccupancyPage() {
       )}
     </div>
   );
+}
+
+/** 比較基準ごとの列タイトル・KPIラベル（前年実績 / 指定日取込）。 */
+function compareLabels(
+  basis: string | null,
+  year: number,
+  asOf?: string,
+): { midTitle: string; midSub: string; rightTitle: string; rightSub: string; kpiLabel: string } {
+  if (basis === "previous_snapshot") {
+    const md = asOf ? asOf.slice(5).replace("-", "/") : ""; // MM/DD
+    return {
+      midTitle: "指定日取込比",
+      midSub: asOf ? `当年 − ${asOf} 時点` : "当年 − 取込時点",
+      rightTitle: "指定日取込実績",
+      rightSub: asOf ? `${asOf} 時点` : "取込時点",
+      kpiLabel: md || "取込",
+    };
+  }
+  if (basis === "budget") {
+    return {
+      midTitle: "予算差",
+      midSub: "当年 − 予算",
+      rightTitle: "予算",
+      rightSub: `${year}年 計画`,
+      kpiLabel: "予算",
+    };
+  }
+  // previous_year（既定）
+  return {
+    midTitle: "前年実績比",
+    midSub: "当年 − 前年",
+    rightTitle: "前年実績",
+    rightSub: `${year - 1}年`,
+    kpiLabel: "前年",
+  };
 }
 
 /** Derive a summary-like total from previous-year rows (live response gives

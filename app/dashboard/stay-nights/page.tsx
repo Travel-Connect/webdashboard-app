@@ -11,8 +11,9 @@ import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { useFilters } from "@/lib/dashboard/use-filters";
 import { useDashboardQuery } from "@/lib/dashboard/client";
-import { Btn, EmptyState, LoadingSkeleton } from "@/components/ui/primitives";
+import { Btn, EmptyState, LoadingSkeleton, LoadingOverlay } from "@/components/ui/primitives";
 import { Icon } from "@/components/ui/icon";
+import { Dropdown, FilterButton, MenuItem } from "@/components/dashboard/dropdown";
 import type { FacilityOption } from "@/app/api/facilities/route";
 import { pivotStayNights } from "@/components/screens/dashboard-stay-nights/model";
 import {
@@ -23,8 +24,8 @@ import {
 
 const STAY_VIO = "37,111,219";
 
-/* 部屋タイプ（live データは部屋タイプ別の粒度を持たないため表示のみ） */
-const STAY_ROOMTYPES = ["全室タイプ"] as const;
+/** 全室タイプ（横断）を表す sentinel。空文字＝部屋タイプ絞り込みなし。 */
+const ALL_ROOMTYPES = "";
 
 type MetricId = "rooms" | "sales" | "adr" | "comp";
 const STAY_METRICS: { id: MetricId; label: string }[] = [
@@ -48,16 +49,25 @@ const facilitiesFetcher = (url: string): Promise<FacilityOption[]> =>
 
 export default function StayNightsPage() {
   const { filters } = useFilters();
-  const [roomType, setRoomType] = useState<string>(STAY_ROOMTYPES[0]);
+  const [roomType, setRoomType] = useState<string>(ALL_ROOMTYPES);
   const [sel, setSel] = useState<MetricId[]>(["rooms"]);
+
+  // 施設が変わると部屋タイプの母集合が変わるため、選択を全室タイプへリセット。
+  // prop 変化に応じた state 調整＝レンダー中の条件付き setState（React 推奨／useEffect 不要）。
+  const [prevFacility, setPrevFacility] = useState(filters.facilityId);
+  if (prevFacility !== filters.facilityId) {
+    setPrevFacility(filters.facilityId);
+    setRoomType(ALL_ROOMTYPES);
+  }
 
   const curY = filters.year;
   const priorY = curY - 1;
   const gross = filters.taxMode === "gross";
 
-  // 当年 / 前年 を別クエリで取得（前年は year を1つ戻す）
-  const cur = useDashboardQuery("stay-nights", filters);
-  const prev = useDashboardQuery("stay-nights", { ...filters, year: priorY });
+  // 当年 / 前年 を別クエリで取得（前年は year を1つ戻す）。部屋タイプ絞り込みは両方へ適用。
+  const rt = roomType || undefined;
+  const cur = useDashboardQuery("stay-nights", { ...filters, roomType: rt });
+  const prev = useDashboardQuery("stay-nights", { ...filters, year: priorY, roomType: rt });
 
   const { data: facilities } = useSWR<FacilityOption[]>("/api/facilities", facilitiesFetcher, {
     revalidateOnFocus: false,
@@ -67,6 +77,10 @@ export default function StayNightsPage() {
   const facName = isAll
     ? "全施設"
     : facilities?.find((f) => f.id === filters.facilityId)?.displayName ?? "施設";
+
+  // 選択可能な部屋タイプ（当年データの母集合・売上降順）
+  const roomTypes = cur.data?.roomTypes ?? [];
+  const roomTypeLabel = roomType || "全室タイプ";
 
   const curRows = useMemo(() => pivotStayNights(cur.data?.rows ?? []), [cur.data]);
   const prevRows = useMemo(() => pivotStayNights(prev.data?.rows ?? []), [prev.data]);
@@ -186,7 +200,10 @@ export default function StayNightsPage() {
   const noData = !isLoading && !hasError && curRows.length === 0;
 
   return (
-    <div style={{ height: "calc(100dvh - 152px)", display: "flex", flexDirection: "column", gap: 12, overflow: "hidden" }}>
+    <div style={{ height: "calc(100dvh - 152px)", display: "flex", flexDirection: "column", gap: 12, overflow: "hidden", position: "relative" }}>
+      {/* 再取得中オーバーレイ（旧データを見せつつ上に重ねる。複数クエリは当年=cur を基準） */}
+      {!hasError && cur.data && cur.isValidating && <LoadingOverlay />}
+
       {/* タイトル + メタ */}
       <div
         style={{
@@ -201,39 +218,62 @@ export default function StayNightsPage() {
         <div>
           <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800 }}>泊数分析表</h2>
           <div style={{ fontSize: 12.5, color: "var(--text-2)", marginTop: 3 }}>
-            {facName} · {roomType} · {gross ? "税込" : "税抜"}表示 · 当年 {curY}年 / 前年 {priorY}年 · 指標：
+            {facName} · {roomTypeLabel} · {gross ? "税込" : "税抜"}表示 · 当年 {curY}年 / 前年 {priorY}年 · 指標：
             <strong style={{ color: "var(--text)" }}>
               {allOn ? "すべて（4指標）" : shown.map((m) => m.label).join("・")}
             </strong>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 600 }}>部屋タイプ</span>
-          <div style={{ display: "inline-flex", gap: 6 }}>
-            {STAY_ROOMTYPES.map((rt) => {
-              const active = rt === roomType;
-              return (
-                <button
-                  key={rt}
-                  onClick={() => setRoomType(rt)}
-                  style={{
-                    height: 32,
-                    padding: "0 13px",
-                    borderRadius: "var(--r-md)",
-                    cursor: "pointer",
-                    fontSize: 12.5,
-                    fontWeight: 600,
-                    whiteSpace: "nowrap",
-                    border: "1px solid " + (active ? "var(--primary)" : "var(--border)"),
-                    background: active ? "var(--primary-weak)" : "var(--surface)",
-                    color: active ? "var(--primary-ink)" : "var(--text-2)",
+          <Dropdown
+            width={280}
+            align="right"
+            trigger={(open, toggle) => (
+              <FilterButton
+                icon="BedDouble"
+                label="部屋タイプ"
+                value={roomTypeLabel}
+                open={open}
+                onClick={toggle}
+              />
+            )}
+          >
+            {(close) => (
+              <div style={{ padding: 4 }}>
+                <MenuItem
+                  active={roomType === ALL_ROOMTYPES}
+                  onClick={() => {
+                    setRoomType(ALL_ROOMTYPES);
+                    close();
                   }}
+                  right={roomType === ALL_ROOMTYPES ? <Icon name="Check" size={15} /> : undefined}
                 >
-                  {rt}
-                </button>
-              );
-            })}
-          </div>
+                  全室タイプ（横断）
+                </MenuItem>
+                {roomTypes.length > 0 && (
+                  <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+                )}
+                {roomTypes.map((rt) => (
+                  <MenuItem
+                    key={rt}
+                    active={rt === roomType}
+                    onClick={() => {
+                      setRoomType(rt);
+                      close();
+                    }}
+                    right={rt === roomType ? <Icon name="Check" size={15} /> : undefined}
+                  >
+                    {rt}
+                  </MenuItem>
+                ))}
+                {roomTypes.length === 0 && (
+                  <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--text-3)" }}>
+                    部屋タイプがありません
+                  </div>
+                )}
+              </div>
+            )}
+          </Dropdown>
           <Btn variant="default" icon="FileDown" size="sm">
             エクスポート
           </Btn>

@@ -340,6 +340,73 @@ export function LoadingSkeleton({ rows = 4, height = 16 }: LoadingSkeletonProps)
   );
 }
 
+/* ---------- Spinner ---------- */
+export interface SpinnerProps {
+  size?: number;
+  color?: string;
+}
+export function Spinner({ size = 20, color = "var(--primary)" }: SpinnerProps) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        display: "inline-block",
+        width: size,
+        height: size,
+        border: `2px solid var(--surface-3)`,
+        borderTopColor: color,
+        borderRadius: "50%",
+        animation: "spin .7s linear infinite",
+      }}
+    />
+  );
+}
+
+/* ---------- LoadingOverlay ----------
+   再取得中（isValidating）に旧データの上へ薄く被せる。
+   親要素は position:relative にすること。操作はブロックしない。 */
+export interface LoadingOverlayProps {
+  label?: string;
+}
+export function LoadingOverlay({ label = "読み込み中…" }: LoadingOverlayProps) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 20,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 10,
+        background: "rgba(255,255,255,.55)",
+        backdropFilter: "blur(.5px)",
+        borderRadius: "inherit",
+        pointerEvents: "none",
+      }}
+    >
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 9,
+          padding: "8px 14px",
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 999,
+          boxShadow: "var(--shadow-card)",
+          fontSize: 12.5,
+          fontWeight: 600,
+          color: "var(--text-2)",
+        }}
+      >
+        <Spinner size={16} />
+        {label}
+      </span>
+    </div>
+  );
+}
+
 /* ---------- Button ---------- */
 export type BtnVariant = "primary" | "default" | "ghost" | "danger" | "accent";
 export interface BtnProps {

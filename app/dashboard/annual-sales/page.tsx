@@ -7,7 +7,7 @@
    Live endpoint: /api/dashboard/annual-sales -> AnnualSalesResponse.matrix
    ============================================================ */
 
-import { Btn, EmptyState, LoadingSkeleton, Panel } from "@/components/ui/primitives";
+import { Btn, EmptyState, LoadingSkeleton, LoadingOverlay, Panel } from "@/components/ui/primitives";
 import { useDashboardQuery } from "@/lib/dashboard/client";
 import { useFilters } from "@/lib/dashboard/use-filters";
 import { MetricTabs, useMetricTabs } from "@/components/dashboard/metric-tabs";
@@ -18,7 +18,10 @@ const AF_IDS = AF_METRICS.map((m) => m.id);
 
 export default function AnnualSalesPage() {
   const { filters } = useFilters();
-  const { data, error, isLoading } = useDashboardQuery("annual-sales", filters);
+  const { data, error, isLoading, isValidating } = useDashboardQuery(
+    "annual-sales",
+    filters,
+  );
   const metric = useMetricTabs<AfMetricId>(AF_IDS, ["actual"]);
 
   const matrix = data?.matrix ?? null;
@@ -29,7 +32,10 @@ export default function AnnualSalesPage() {
     : shown.map((m) => m.label).join("・");
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, position: "relative" }}>
+      {/* 再取得中オーバーレイ（旧データを見せつつ上に重ねる） */}
+      {!error && data && isValidating && <LoadingOverlay />}
+
       {/* header */}
       <div
         style={{

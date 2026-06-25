@@ -9,7 +9,7 @@
    ============================================================ */
 
 import { type ReactNode } from "react";
-import { Btn, EmptyState, LoadingSkeleton, Panel } from "@/components/ui/primitives";
+import { Btn, EmptyState, LoadingSkeleton, LoadingOverlay, Panel } from "@/components/ui/primitives";
 import { useDashboardQuery } from "@/lib/dashboard/client";
 import { useFilters } from "@/lib/dashboard/use-filters";
 import { MetricTabs, useMetricTabs } from "@/components/dashboard/metric-tabs";
@@ -56,7 +56,10 @@ function sectionBar(label: ReactNode) {
 
 export default function RoomTypesPage() {
   const { filters } = useFilters();
-  const { data, error, isLoading } = useDashboardQuery("room-types", filters);
+  const { data, error, isLoading, isValidating } = useDashboardQuery(
+    "room-types",
+    filters,
+  );
   const metric = useMetricTabs<RtMetricId>(RT_IDS, ["rev"]);
 
   const matrix = data?.matrix ?? null;
@@ -76,8 +79,12 @@ export default function RoomTypesPage() {
         flexDirection: "column",
         gap: 12,
         overflow: "hidden",
+        position: "relative",
       }}
     >
+      {/* 再取得中オーバーレイ（旧データを見せつつ上に重ねる） */}
+      {!error && data && isValidating && <LoadingOverlay />}
+
       {/* header */}
       <div
         style={{

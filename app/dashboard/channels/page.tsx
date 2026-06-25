@@ -17,6 +17,7 @@ import {
   Btn,
   EmptyState,
   LoadingSkeleton,
+  LoadingOverlay,
   Segmented,
 } from "@/components/ui/primitives";
 import { Icon } from "@/components/ui/icon";
@@ -34,7 +35,10 @@ export default function ChannelsPage() {
     () => ({ ...filters, compareWith: "previous_year" as const }),
     [filters],
   );
-  const { data, error, isLoading } = useDashboardQuery("channels", chFilters);
+  const { data, error, isLoading, isValidating } = useDashboardQuery(
+    "channels",
+    chFilters,
+  );
   const [hideZero, setHideZero] = useState(true);
   const [view, setView] = useState<"cur" | "py">("cur");
 
@@ -70,8 +74,12 @@ export default function ChannelsPage() {
         flexDirection: "column",
         gap: 12,
         overflow: "hidden",
+        position: "relative",
       }}
     >
+      {/* 再取得中オーバーレイ（旧データを見せつつ上に重ねる） */}
+      {!error && data && isValidating && <LoadingOverlay />}
+
       {/* title + toolbar */}
       <div
         style={{

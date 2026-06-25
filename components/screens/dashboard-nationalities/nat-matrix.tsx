@@ -9,8 +9,24 @@
    ============================================================ */
 
 import { type CSSProperties } from "react";
-import type { NationalityMatrix, NatCell } from "@/lib/api/types";
+import type { NationalityMatrix, NatCell, NatMatrixRow } from "@/lib/api/types";
 import { NAT_METRICS, NAT_VIO, type NatMetricId } from "./metrics";
+
+const emptyCell = (): NatCell => ({ rev: 0, rooms: 0, guests: 0, resv: 0, multi: 0, ltTotal: 0, ltCount: 0 });
+function addInto(t: NatCell, s: NatCell): void {
+  t.rev += s.rev; t.rooms += s.rooms; t.guests += s.guests; t.resv += s.resv;
+  t.multi += s.multi; t.ltTotal += s.ltTotal; t.ltCount += s.ltCount;
+}
+/** 上位N以外の国を「その他」1行に集約（base measures を合算→指標は compute で算出）。 */
+function aggregateOther(rest: NatMatrixRow[]): NatMatrixRow {
+  const months = Array.from({ length: 12 }, emptyCell);
+  const total = emptyCell();
+  for (const r of rest) {
+    for (let m = 0; m < 12; m++) addInto(months[m], r.months[m]);
+    addInto(total, r.total);
+  }
+  return { country: `その他 ${rest.length}カ国`, region: "", months, total };
+}
 
 export interface NatMatrixTableProps {
   matrix: NationalityMatrix;
@@ -18,13 +34,22 @@ export interface NatMatrixTableProps {
   hideZero: boolean;
   /** すべて表示時はセクション帯（高さ40px）の分だけ sticky を下げる。 */
   sticky?: boolean;
+  /** false: 上位 topN カ国＋その他 / true: 全件表示。 */
+  expanded?: boolean;
+  topN?: number;
 }
 
-export function NatMatrixTable({ matrix, metricId, hideZero, sticky }: NatMatrixTableProps) {
+export function NatMatrixTable({ matrix, metricId, hideZero, sticky, expanded = false, topN = 20 }: NatMatrixTableProps) {
   const M = NAT_METRICS.find((m) => m.id === metricId) ?? NAT_METRICS[0];
   const months = Array.from({ length: 12 }, (_, m) => `${m + 1}月`);
 
-  const rows = hideZero ? matrix.rows.filter((r) => r.total.rooms > 0) : matrix.rows;
+  const filtered = hideZero ? matrix.rows.filter((r) => r.total.rooms > 0) : matrix.rows;
+  // 折りたたみ時は上位 topN ＋「その他」に集約（合計行は全件のまま）
+  const grouped = !expanded && filtered.length > topN;
+  const rows = grouped
+    ? [...filtered.slice(0, topN), aggregateOther(filtered.slice(topN))]
+    : filtered;
+  const otherIdx = grouped ? rows.length - 1 : -1;
   const val = (c: NatCell) => M.compute(c);
 
   const colTotV = matrix.colTotals.map((c) => val(c));
@@ -138,37 +163,50 @@ export function NatMatrixTable({ matrix, metricId, hideZero, sticky }: NatMatrix
         </tr>
       </thead>
       <tbody>
-        {rows.map((r, ri) => (
-          <tr
-            key={ri}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "")}
-          >
-            <td style={cName}>{r.country}</td>
-            {r.months.map((c, m) => {
-              const v = val(c);
-              return (
-                <td
-                  key={m}
-                  className="tabular"
-                  style={{
-                    ...cNum,
-                    color: v === 0 ? "var(--text-3)" : "var(--text)",
-                    background: v === 0 ? undefined : `rgba(${NAT_VIO},${alphaFor(v, m).toFixed(3)})`,
-                  }}
-                >
-                  {M.fmt(v)}
-                </td>
-              );
-            })}
-            <td
-              className="tabular"
-              style={{ ...totCol, color: val(r.total) === 0 ? "var(--text-3)" : "var(--text)" }}
+        {rows.map((r, ri) => {
+          const isOther = ri === otherIdx;
+          const sep: CSSProperties = isOther ? { borderTop: "2px solid var(--border-strong)" } : {};
+          return (
+            <tr
+              key={ri}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "")}
             >
-              {M.fmt(val(r.total))}
-            </td>
-          </tr>
-        ))}
+              <td
+                style={
+                  isOther
+                    ? { ...cName, ...sep, fontStyle: "italic", fontWeight: 700, color: "var(--text-2)", background: `rgba(${NAT_VIO},0.05)` }
+                    : cName
+                }
+              >
+                {r.country}
+              </td>
+              {r.months.map((c, m) => {
+                const v = val(c);
+                return (
+                  <td
+                    key={m}
+                    className="tabular"
+                    style={{
+                      ...cNum,
+                      ...sep,
+                      color: v === 0 ? "var(--text-3)" : "var(--text)",
+                      background: v === 0 ? undefined : `rgba(${NAT_VIO},${alphaFor(v, m).toFixed(3)})`,
+                    }}
+                  >
+                    {M.fmt(v)}
+                  </td>
+                );
+              })}
+              <td
+                className="tabular"
+                style={{ ...totCol, ...sep, color: val(r.total) === 0 ? "var(--text-3)" : "var(--text)" }}
+              >
+                {M.fmt(val(r.total))}
+              </td>
+            </tr>
+          );
+        })}
         <tr>
           <td style={{ ...cName, fontWeight: 700, background: `rgba(${NAT_VIO},0.07)`, borderTop: "2px solid var(--border-strong)" }}>
             合計

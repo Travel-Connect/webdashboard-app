@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import { useFilters } from "@/lib/dashboard/use-filters";
 import { useDashboardQuery } from "@/lib/dashboard/client";
 import { Icon } from "@/components/ui/icon";
-import { Badge, Btn, LoadingSkeleton } from "@/components/ui/primitives";
+import { Badge, Btn, LoadingSkeleton, LoadingOverlay } from "@/components/ui/primitives";
 import { percent, yen, yenCompact } from "@/lib/dashboard/format";
 import {
   OverviewCard,
@@ -44,7 +44,9 @@ export default function DashboardOverviewPage() {
   const asQ = useDashboardQuery("annual-sales", filters);
 
   const isLoading = occQ.isLoading || chQ.isLoading || asQ.isLoading;
+  const isValidating = occQ.isValidating || chQ.isValidating || asQ.isValidating;
   const firstError = occQ.error || chQ.error || asQ.error;
+  const hasData = !!(occQ.data || chQ.data || asQ.data);
 
   const periodLabel =
     filters.period === "monthly" && filters.month != null
@@ -175,7 +177,10 @@ export default function DashboardOverviewPage() {
   }, [occQ.data, asQ.data]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 22, position: "relative" }}>
+      {/* 再取得中オーバーレイ（旧データを見せつつ上に重ねる） */}
+      {!firstError && hasData && isValidating && <LoadingOverlay />}
+
       {/* page intro */}
       <div
         style={{

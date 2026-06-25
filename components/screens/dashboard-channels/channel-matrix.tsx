@@ -299,7 +299,7 @@ export function ChannelMatrixTable({
                       borderLeft: ci === selIdx ? `1px solid rgba(${CH_BLUE},.4)` : undefined,
                     }}
                   >
-                    {p >= 10 ? Math.round(p) : p.toFixed(1)}%
+                    {p.toFixed(2)}%
                   </td>
                 );
               })}
@@ -313,7 +313,7 @@ export function ChannelMatrixTable({
                   color: r.total === 0 ? "var(--text-3)" : "var(--text)",
                 }}
               >
-                {grand ? ((r.total / grand) * 100).toFixed(1) : "0.0"}%
+                {grand ? ((r.total / grand) * 100).toFixed(2) : "0.00"}%
               </td>
             </tr>
           ))}

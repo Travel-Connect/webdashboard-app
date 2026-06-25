@@ -8,7 +8,7 @@
    ============================================================ */
 
 import { type ReactNode, useState } from "react";
-import { Btn, EmptyState, LoadingSkeleton, Panel } from "@/components/ui/primitives";
+import { Btn, EmptyState, LoadingSkeleton, LoadingOverlay, Panel } from "@/components/ui/primitives";
 import { Icon } from "@/components/ui/icon";
 import { useDashboardQuery } from "@/lib/dashboard/client";
 import { useFilters } from "@/lib/dashboard/use-filters";
@@ -57,11 +57,23 @@ function sectionBar(label: ReactNode) {
 
 export default function NationalitiesPage() {
   const { filters } = useFilters();
-  const { data, error, isLoading } = useDashboardQuery("nationalities", filters);
+  const { data, error, isLoading, isValidating } = useDashboardQuery(
+    "nationalities",
+    filters,
+  );
   const metric = useMultiMetric(["rev"]);
   const [hideZero, setHideZero] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const TOP_N = 20;
 
   const matrix = data?.matrix ?? null;
+  // 「詳細を見る」ボタンの表示判定・件数（hideZero 反映後の国数）
+  const filteredCount = matrix
+    ? hideZero
+      ? matrix.rows.filter((r) => r.total.rooms > 0).length
+      : matrix.rows.length
+    : 0;
+  const hasMore = filteredCount > TOP_N;
   const taxLabel = filters.taxMode === "gross" ? "税込" : "税抜";
   const shown = NAT_METRICS.filter((m) => metric.sel.includes(m.id));
   const multi = shown.length > 1;
@@ -78,8 +90,12 @@ export default function NationalitiesPage() {
         flexDirection: "column",
         gap: 12,
         overflow: "hidden",
+        position: "relative",
       }}
     >
+      {/* 再取得中オーバーレイ（旧データを見せつつ上に重ねる） */}
+      {!error && data && isValidating && <LoadingOverlay />}
+
       {/* header */}
       <div
         style={{
@@ -167,13 +183,41 @@ export default function NationalitiesPage() {
           {shown.map((m, i) => (
             <div key={m.id} style={{ marginBottom: i === shown.length - 1 ? 0 : 20 }}>
               {sectionBar(m.label)}
-              <NatMatrixTable matrix={matrix} metricId={m.id} hideZero={hideZero} sticky />
+              <NatMatrixTable matrix={matrix} metricId={m.id} hideZero={hideZero} expanded={expanded} topN={TOP_N} sticky />
             </div>
           ))}
         </div>
       ) : (
         <div style={wrap}>
-          <NatMatrixTable matrix={matrix} metricId={shown[0].id} hideZero={hideZero} />
+          <NatMatrixTable matrix={matrix} metricId={shown[0].id} hideZero={hideZero} expanded={expanded} topN={TOP_N} />
+        </div>
+      )}
+
+      {/* 詳細を見る（上位20カ国 ⇄ 全件） */}
+      {matrix && matrix.rows.length > 0 && hasMore && (
+        <div style={{ flexShrink: 0, display: "flex", justifyContent: "center", paddingBottom: 2 }}>
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              height: 34,
+              padding: "0 18px",
+              border: "1px solid var(--border)",
+              borderRadius: 999,
+              background: "var(--surface)",
+              color: "var(--primary-ink)",
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: "pointer",
+              boxShadow: "var(--shadow-card)",
+            }}
+          >
+            <Icon name={expanded ? "ChevronUp" : "ChevronDown"} size={15} />
+            {expanded ? `上位${TOP_N}カ国に戻す` : `詳細を見る（全${filteredCount}カ国）`}
+          </button>
         </div>
       )}
     </div>

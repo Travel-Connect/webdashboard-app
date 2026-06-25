@@ -118,4 +118,5 @@ button { font-family: inherit; cursor: pointer; }
 table.tbl tbody tr:last-child td { border-bottom: none; }
 .fade-in { animation: fi .25s ease both; }
 @keyframes fi { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes spin { to { transform: rotate(360deg); } }
 @media print { .no-print { display: none !important; } }

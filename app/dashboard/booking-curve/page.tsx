@@ -11,7 +11,7 @@ import { type ReactNode, useState } from "react";
 import { useFilters } from "@/lib/dashboard/use-filters";
 import { useDashboardQuery } from "@/lib/dashboard/client";
 import { integer, percent, yen, yenCompact } from "@/lib/dashboard/format";
-import { Btn, EmptyState, LoadingSkeleton, Segmented } from "@/components/ui/primitives";
+import { Btn, EmptyState, LoadingSkeleton, LoadingOverlay, Segmented } from "@/components/ui/primitives";
 import { MultiLineChart } from "@/components/charts";
 import { MetricTabs, useMetricTabs } from "@/components/dashboard/metric-tabs";
 import { CurveTable, type CurveTableRow } from "@/components/screens/dashboard-booking-curve/curve-table";
@@ -66,7 +66,10 @@ const progress = (vals: number[]): number[] => vals.map((v) => (vals[0] ? (v / v
 
 export default function BookingCurvePage() {
   const { filters } = useFilters();
-  const { data, error, isLoading } = useDashboardQuery("booking-curve", filters);
+  const { data, error, isLoading, isValidating } = useDashboardQuery(
+    "booking-curve",
+    filters,
+  );
   const metric = useMetricTabs<BcMetricId>(BC_IDS, ["rooms"]);
   const [scope, setScope] = useState<"without" | "with">("without");
 
@@ -166,7 +169,10 @@ export default function BookingCurvePage() {
   ];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, position: "relative" }}>
+      {/* 再取得中オーバーレイ（旧データを見せつつ上に重ねる） */}
+      {!error && data && isValidating && <LoadingOverlay />}
+
       {Header}
 
       {/* 指標セレクタ + キャンセル可否 + エクスポート */}

@@ -13,12 +13,14 @@ import type { OccupancyRow } from "@/lib/api/types";
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
 
 const mTh: CSSProperties = {
-  padding: "4px 6px",
-  fontSize: 10,
+  padding: "4px 5px",
+  fontSize: 11,
   fontWeight: 700,
   color: "var(--text-2)",
   borderBottom: "1px solid var(--border-strong)",
-  whiteSpace: "nowrap",
+  whiteSpace: "normal", // 長い項目名は2行に折り返す（列幅は据え置き）
+  lineHeight: 1.15,
+  verticalAlign: "bottom",
   background: "var(--surface-2)",
   textAlign: "right",
   position: "sticky",
@@ -26,20 +28,20 @@ const mTh: CSSProperties = {
   zIndex: 1,
 };
 const mTd: CSSProperties = {
-  padding: "0 6px",
-  fontSize: 11,
+  padding: "0 5px",
+  fontSize: 12.5,
   whiteSpace: "nowrap",
   borderBottom: "1px solid var(--border)",
-  height: 17,
-  lineHeight: "17px",
+  height: 19,
+  lineHeight: "19px",
   textAlign: "right",
 };
 const mTdF: CSSProperties = {
-  padding: "0 6px",
-  fontSize: 11,
+  padding: "0 5px",
+  fontSize: 12.5,
   whiteSpace: "nowrap",
-  height: 18,
-  lineHeight: "18px",
+  height: 20,
+  lineHeight: "20px",
   textAlign: "right",
   fontWeight: 700,
   background: "var(--surface-2)",
@@ -73,7 +75,7 @@ const sub = (a: number | null, b: number | null): number | null =>
 export interface CompareMatrixProps {
   /** current-period rows (define the visible row set + ordering). */
   rows: OccupancyRow[];
-  /** previous-year rows (response.comparison.rows). */
+  /** baseline rows (response.comparison.rows — 前年 / 予算 / 指定日取込)。 */
   baseline: OccupancyRow[];
   monthMode?: boolean;
   rowH?: number;
@@ -105,31 +107,33 @@ export function CompareMatrix({
     <table
       style={{
         width: "100%",
-        minWidth: monthMode ? 446 : undefined,
+        minWidth: monthMode ? 506 : 444,
         borderCollapse: "collapse",
         tableLayout: "fixed",
       }}
     >
       <colgroup>
-        <col style={{ width: monthMode ? 48 : 38 }} />
-        <col style={{ width: monthMode ? 42 : 36 }} />
-        <col style={{ width: monthMode ? 52 : 46 }} />
-        <col style={{ width: monthMode ? 46 : 38 }} />
-        <col style={{ width: 42 }} />
-        <col style={monthMode ? { width: 82 } : undefined} />
-        <col style={monthMode ? { width: 58 } : undefined} />
-        <col style={monthMode ? { width: 58 } : undefined} />
+        <col style={{ width: monthMode ? 46 : 36 }} />{/* 日付 */}
+        <col style={{ width: monthMode ? 44 : 36 }} />{/* 販売室数 */}
+        <col style={{ width: monthMode ? 54 : 52 }} />{/* 稼働率 */}
+        <col style={{ width: monthMode ? 48 : 38 }} />{/* 宿泊人数 */}
+        <col style={{ width: monthMode ? 84 : 74 }} />{/* 客室販売金額 */}
+        <col style={{ width: monthMode ? 58 : 50 }} />{/* 客単価 */}
+        <col style={{ width: monthMode ? 64 : 58 }} />{/* 平均室単価 */}
+        <col style={{ width: monthMode ? 60 : 56 }} />{/* RevPAR */}
+        <col style={{ width: monthMode ? 48 : 44 }} />{/* 平均宿泊者数 */}
       </colgroup>
       <thead>
         <tr>
-          <th style={{ ...mTh, textAlign: "left" }}>{monthMode ? "月" : "日"}</th>
-          <th style={mTh}>室</th>
+          <th style={{ ...mTh, textAlign: "left" }}>日付</th>
+          <th style={mTh}>販売室数</th>
           <th style={mTh}>稼働率</th>
-          <th style={mTh}>人</th>
-          <th style={mTh}>平均</th>
-          <th style={mTh}>売上</th>
-          <th style={mTh}>室単価</th>
+          <th style={mTh}>宿泊人数</th>
+          <th style={mTh}>客室販売金額</th>
+          <th style={mTh}>客単価</th>
+          <th style={mTh}>平均室単価</th>
           <th style={mTh}>RevPAR</th>
+          <th style={mTh}>同伴係数</th>
         </tr>
       </thead>
       <tbody>
@@ -145,7 +149,7 @@ export function CompareMatrix({
                   <span className="tabular">{dd}</span>
                   <span
                     style={{
-                      fontSize: 9.5,
+                      fontSize: 10.5,
                       marginLeft: 2,
                       color: "var(--text-3)",
                     }}
@@ -154,18 +158,22 @@ export function CompareMatrix({
                   </span>
                 </td>
               )}
+              {/* 販売室数 */}
               {dCell(b ? sub(r.soldRoomNights, b.soldRoomNights) : null, (n) => integer(n), "", td)}
-              {dCell(
-                b ? mul100(sub(r.occupancyRate, b.occupancyRate)) : null,
-                (n) => n.toFixed(1),
-                "%",
-                td,
-              )}
+              {/* 稼働率 */}
+              {dCell(b ? mul100(sub(r.occupancyRate, b.occupancyRate)) : null, (n) => n.toFixed(1), "%", td)}
+              {/* 宿泊人数 */}
               {dCell(b ? sub(r.guestCount, b.guestCount) : null, (n) => integer(n), "", td)}
-              {dCell(b ? sub(r.avgGuestsPerRoom, b.avgGuestsPerRoom) : null, (n) => n.toFixed(2), "", td)}
+              {/* 客室販売金額 */}
               {dCell(b ? sub(r.roomRevenue, b.roomRevenue) : null, (n) => integer(n), "", td)}
+              {/* 客単価 */}
+              {dCell(b ? sub(r.guestUnitPrice, b.guestUnitPrice) : null, (n) => integer(n), "", td)}
+              {/* 平均室単価 */}
               {dCell(b ? sub(r.adr, b.adr) : null, (n) => integer(n), "", td)}
+              {/* RevPAR */}
               {dCell(b ? sub(r.revpar, b.revpar) : null, (n) => integer(n), "", td)}
+              {/* 平均宿泊者数 */}
+              {dCell(b ? sub(r.avgGuestsPerRoom, b.avgGuestsPerRoom) : null, (n) => n.toFixed(2), "", td)}
             </tr>
           );
         })}
@@ -173,13 +181,14 @@ export function CompareMatrix({
       <tfoot>
         <tr>
           <td style={{ ...mTdF, textAlign: "left", borderTop: "2px solid var(--border-strong)" }}>{fl}</td>
-          {footCell(tot.sold, (n) => integer(n), "", true)}
-          {footCell(null, null, "%", true) /* occ diff is point-based; aggregate shown via KPI strip */}
-          {footCell(tot.guests, (n) => integer(n), "", true)}
-          {footCell(null, null, "", true)}
-          {footCell(tot.rev, (n) => integer(n), "", true)}
-          {footCell(null, null, "", true)}
-          {footCell(null, null, "", true)}
+          {footCell(tot.sold, (n) => integer(n), "", true) /* 販売室数 */}
+          {footCell(null, null, "%", true) /* 稼働率: pt差はKPIで集計 */}
+          {footCell(tot.guests, (n) => integer(n), "", true) /* 宿泊人数 */}
+          {footCell(tot.rev, (n) => integer(n), "", true) /* 客室販売金額 */}
+          {footCell(null, null, "", true) /* 客単価 */}
+          {footCell(null, null, "", true) /* 平均室単価 */}
+          {footCell(null, null, "", true) /* RevPAR */}
+          {footCell(null, null, "", true) /* 平均宿泊者数 */}
         </tr>
       </tfoot>
     </table>

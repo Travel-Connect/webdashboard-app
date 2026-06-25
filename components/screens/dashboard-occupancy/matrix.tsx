@@ -13,12 +13,14 @@ import type { OccupancyRow, OccupancySummary } from "@/lib/api/types";
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
 
 const mTh: CSSProperties = {
-  padding: "4px 6px",
-  fontSize: 10,
+  padding: "4px 5px",
+  fontSize: 11,
   fontWeight: 700,
   color: "var(--text-2)",
   borderBottom: "1px solid var(--border-strong)",
-  whiteSpace: "nowrap",
+  whiteSpace: "normal", // 長い項目名は2行に折り返す（列幅は据え置き）
+  lineHeight: 1.15,
+  verticalAlign: "bottom",
   background: "var(--surface-2)",
   textAlign: "right",
   position: "sticky",
@@ -26,20 +28,20 @@ const mTh: CSSProperties = {
   zIndex: 1,
 };
 const mTd: CSSProperties = {
-  padding: "0 6px",
-  fontSize: 11,
+  padding: "0 5px",
+  fontSize: 12.5,
   whiteSpace: "nowrap",
   borderBottom: "1px solid var(--border)",
-  height: 17,
-  lineHeight: "17px",
+  height: 19,
+  lineHeight: "19px",
   textAlign: "right",
 };
 const mTdF: CSSProperties = {
-  padding: "0 6px",
-  fontSize: 11,
+  padding: "0 5px",
+  fontSize: 12.5,
   whiteSpace: "nowrap",
-  height: 18,
-  lineHeight: "18px",
+  height: 20,
+  lineHeight: "20px",
   textAlign: "right",
   fontWeight: 700,
   background: "var(--surface-2)",
@@ -81,33 +83,35 @@ export function ActualMatrix({
     <table
       style={{
         width: "100%",
-        minWidth: monthMode ? 452 : undefined,
+        minWidth: monthMode ? 516 : 446,
         borderCollapse: "collapse",
         tableLayout: "fixed",
       }}
     >
       <colgroup>
-        <col style={{ width: monthMode ? 48 : 38 }} />
-        <col style={{ width: monthMode ? 42 : 38 }} />
-        <col style={{ width: monthMode ? 40 : 34 }} />
-        <col style={{ width: monthMode ? 50 : 46 }} />
-        <col style={{ width: monthMode ? 44 : 40 }} />
-        <col style={{ width: 42 }} />
-        <col style={monthMode ? { width: 70 } : undefined} />
-        <col style={monthMode ? { width: 56 } : undefined} />
-        <col style={monthMode ? { width: 56 } : undefined} />
+        <col style={{ width: monthMode ? 46 : 36 }} />{/* 日付 */}
+        <col style={{ width: monthMode ? 40 : 32 }} />{/* 販売室数 */}
+        <col style={{ width: monthMode ? 38 : 30 }} />{/* 残室数 */}
+        <col style={{ width: monthMode ? 52 : 50 }} />{/* 稼働率 */}
+        <col style={{ width: monthMode ? 46 : 34 }} />{/* 宿泊人数 */}
+        <col style={{ width: monthMode ? 78 : 70 }} />{/* 客室販売金額 */}
+        <col style={{ width: monthMode ? 54 : 46 }} />{/* 客単価 */}
+        <col style={{ width: monthMode ? 60 : 54 }} />{/* 平均室単価 */}
+        <col style={{ width: monthMode ? 56 : 52 }} />{/* RevPAR */}
+        <col style={{ width: monthMode ? 46 : 42 }} />{/* 平均宿泊者数 */}
       </colgroup>
       <thead>
         <tr>
-          <th style={{ ...mTh, textAlign: "left" }}>{monthMode ? "月" : "日"}</th>
-          <th style={mTh}>室</th>
-          <th style={mTh}>残</th>
+          <th style={{ ...mTh, textAlign: "left" }}>日付</th>
+          <th style={mTh}>販売室数</th>
+          <th style={mTh}>残室数</th>
           <th style={mTh}>稼働率</th>
-          <th style={mTh}>人</th>
-          <th style={mTh}>平均</th>
-          <th style={mTh}>売上</th>
-          <th style={mTh}>室単価</th>
+          <th style={mTh}>宿泊人数</th>
+          <th style={mTh}>客室販売金額</th>
+          <th style={mTh}>客単価</th>
+          <th style={mTh}>平均室単価</th>
           <th style={mTh}>RevPAR</th>
+          <th style={mTh}>同伴係数</th>
         </tr>
       </thead>
       <tbody>
@@ -124,7 +128,7 @@ export function ActualMatrix({
                   <span className="tabular">{lbl.day}</span>
                   <span
                     style={{
-                      fontSize: 9.5,
+                      fontSize: 10.5,
                       marginLeft: 2,
                       color:
                         lbl.dow === "日"
@@ -138,35 +142,47 @@ export function ActualMatrix({
                   </span>
                 </td>
               )}
+              {/* 販売室数 */}
               <td style={td} className="tabular">
                 {integer(r.soldRoomNights)}
               </td>
+              {/* 残室数 */}
               <td
                 style={{ ...td, color: r.remainingRoomNights === 0 ? "var(--accent)" : "var(--text-3)" }}
                 className="tabular"
               >
                 {integer(r.remainingRoomNights)}
               </td>
+              {/* 稼働率 */}
               <td
                 style={{ ...td, color: full ? "var(--accent)" : "var(--text)", fontWeight: full ? 700 : 400 }}
                 className="tabular"
               >
                 {pct(occ)}
               </td>
+              {/* 宿泊人数 */}
               <td style={td} className="tabular">
                 {integer(r.guestCount)}
               </td>
-              <td style={{ ...td, color: "var(--text-2)" }} className="tabular">
-                {ratio2(r.avgGuestsPerRoom)}
-              </td>
+              {/* 客室販売金額 */}
               <td style={td} className="tabular">
                 {integer(r.roomRevenue)}
               </td>
+              {/* 客単価 */}
+              <td style={{ ...td, color: "var(--text-2)" }} className="tabular">
+                {integer(r.guestUnitPrice)}
+              </td>
+              {/* 平均室単価 */}
               <td style={{ ...td, color: "var(--text-2)" }} className="tabular">
                 {integer(r.adr)}
               </td>
+              {/* RevPAR */}
               <td style={{ ...td, color: "var(--text-2)" }} className="tabular">
                 {integer(r.revpar)}
+              </td>
+              {/* 平均宿泊者数 */}
+              <td style={{ ...td, color: "var(--text-2)" }} className="tabular">
+                {ratio2(r.avgGuestsPerRoom)}
               </td>
             </tr>
           );
@@ -182,10 +198,11 @@ export function ActualMatrix({
             integer(total.remainingRoomNights),
             pct(total.occupancyRate),
             integer(total.guestCount),
-            ratio2(total.avgGuestsPerRoom),
             integer(total.roomRevenue),
+            integer(total.guestUnitPrice),
             integer(total.adr),
             integer(total.revpar),
+            ratio2(total.avgGuestsPerRoom),
           ].map((v, i) => (
             <td
               key={i}

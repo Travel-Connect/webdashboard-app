@@ -14,10 +14,13 @@ import type {
   TaxMode,
 } from "@/lib/api/types";
 
+const _now = new Date();
+
 export const FILTER_DEFAULTS = {
   facilityId: "all" as string,
-  year: 2025,
-  period: "yearly" as Period,
+  year: _now.getFullYear(),
+  month: _now.getMonth() + 1,
+  period: "monthly" as Period,
   taxMode: "gross" as TaxMode,
 } as const;
 
@@ -38,20 +41,25 @@ export function parseFilters(
   const yearRaw = Number(get("year"));
   const year = Number.isFinite(yearRaw) && yearRaw > 0 ? yearRaw : FILTER_DEFAULTS.year;
 
+  const periodRaw = get("period") as Period | undefined;
+  const period = periodRaw && PERIODS.includes(periodRaw) ? periodRaw : FILTER_DEFAULTS.period;
+
   const monthRaw = Number(get("month"));
   const month =
     Number.isFinite(monthRaw) && monthRaw >= 1 && monthRaw <= 12
       ? monthRaw
-      : undefined;
-
-  const periodRaw = get("period") as Period | undefined;
-  const period = periodRaw && PERIODS.includes(periodRaw) ? periodRaw : FILTER_DEFAULTS.period;
+      : period === "monthly"
+        ? FILTER_DEFAULTS.month
+        : undefined;
 
   const taxRaw = get("taxMode") as TaxMode | undefined;
   const taxMode = taxRaw && TAX_MODES.includes(taxRaw) ? taxRaw : FILTER_DEFAULTS.taxMode;
 
   const cmpRaw = get("compareWith") as CompareWith | undefined;
   const compareWith = cmpRaw && COMPARE.includes(cmpRaw) ? cmpRaw : undefined;
+
+  const asOfRaw = get("asOfDate");
+  const asOfDate = asOfRaw && /^\d{4}-\d{2}-\d{2}$/.test(asOfRaw) ? asOfRaw : undefined;
 
   return {
     facilityId: get("facilityId") ?? FILTER_DEFAULTS.facilityId,
@@ -60,6 +68,7 @@ export function parseFilters(
     period,
     taxMode,
     compareWith,
+    asOfDate,
   };
 }
 
@@ -96,6 +105,7 @@ export function useFilters(): UseFiltersResult {
       params.set("taxMode", next.taxMode);
       if (next.month != null) params.set("month", String(next.month));
       if (next.compareWith) params.set("compareWith", next.compareWith);
+      if (next.asOfDate) params.set("asOfDate", next.asOfDate);
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     },
     [filters, pathname, router],
@@ -117,5 +127,7 @@ export function filtersToQuery(filters: DashboardFilters): string {
   params.set("taxMode", filters.taxMode);
   if (filters.month != null) params.set("month", String(filters.month));
   if (filters.compareWith) params.set("compareWith", filters.compareWith);
+  if (filters.asOfDate) params.set("asOfDate", filters.asOfDate);
+  if (filters.roomType) params.set("roomType", filters.roomType);
   return params.toString();
 }

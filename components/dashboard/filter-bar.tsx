@@ -6,9 +6,11 @@
    Ported from docs/.../shell.jsx + appshell.jsx (HeaderFilterBar).
    ============================================================ */
 
+import { useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import type { CompareWith, Period, TaxMode } from "@/lib/api/types";
-import { useFilters } from "@/lib/dashboard/use-filters";
+import { FILTER_DEFAULTS, useFilters } from "@/lib/dashboard/use-filters";
 import type { FacilityOption } from "@/app/api/facilities/route";
 import { Segmented } from "@/components/ui/primitives";
 import { Icon } from "@/components/ui/icon";
@@ -23,6 +25,16 @@ export function FacilitySelector() {
   const { data: facilities } = useSWR<FacilityOption[]>("/api/facilities", facFetcher, {
     revalidateOnFocus: false,
   });
+
+  // URL に facilityId が無いとき（初回 + サイドバー遷移でクエリが落ちたとき）は
+  // 既定施設「アクアパレス北谷」を選択する。ユーザーが明示選択（"全施設" 含む）した場合は
+  // URL に facilityId が載るため上書きしない（同一画面内では選択が保持される）。
+  const sp = useSearchParams();
+  useEffect(() => {
+    if (sp.get("facilityId")) return; // 明示選択あり → 触らない
+    const aqua = facilities?.find((f) => f.facilityCode === "aquapalace");
+    if (aqua) setFilters({ facilityId: aqua.id });
+  }, [facilities, sp, setFilters]);
 
   const current =
     filters.facilityId === "all"
@@ -182,7 +194,7 @@ export function PeriodToggle() {
         setFilters({
           period: v,
           // monthly requires a month; default to current/first month
-          month: v === "monthly" ? filters.month ?? 1 : filters.month,
+          month: v === "monthly" ? filters.month ?? FILTER_DEFAULTS.month : filters.month,
         })
       }
       options={[
@@ -214,7 +226,7 @@ const COMPARISONS: { id: CompareWith | "none"; label: string; icon: import("@/co
   { id: "none", label: "なし", icon: "Minus" },
   { id: "previous_year", label: "前年実績", icon: "CalendarClock" },
   { id: "budget", label: "予算", icon: "Target" },
-  { id: "previous_snapshot", label: "前回取込", icon: "History" },
+  { id: "previous_snapshot", label: "指定日取込", icon: "History" },
 ];
 export function ComparisonSelector() {
   const { filters, setFilters } = useFilters();
@@ -247,6 +259,53 @@ export function ComparisonSelector() {
   );
 }
 
+/* ---------- 指定日取込(as-of) 取込日ピッカー ---------- */
+const snapFetcher = (url: string) =>
+  fetch(url).then((r) => r.json() as Promise<{ dates: string[] }>);
+
+export function AsOfPicker() {
+  const { filters, setFilters } = useFilters();
+  const active = filters.compareWith === "previous_snapshot";
+  const { data } = useSWR<{ dates: string[] }>(
+    active ? "/api/dashboard/snapshots" : null,
+    snapFetcher,
+    { revalidateOnFocus: false },
+  );
+  if (!active) return null;
+  const dates = data?.dates ?? [];
+  const cur = filters.asOfDate ?? null;
+  return (
+    <Dropdown
+      width={200}
+      trigger={(open, t) => (
+        <FilterButton label="取込日:" value={cur ?? "前回取込"} open={open} onClick={t} />
+      )}
+    >
+      {(close) => (
+        <div style={{ maxHeight: 360, overflowY: "auto", padding: 6 }}>
+          <MenuItem
+            active={!cur}
+            icon="History"
+            onClick={() => { setFilters({ asOfDate: undefined }); close(); }}
+          >
+            前回取込（自動）
+          </MenuItem>
+          {dates.length === 0 && (
+            <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--text-3)" }}>
+              （スナップショット投入待ち）
+            </div>
+          )}
+          {dates.map((d) => (
+            <MenuItem key={d} active={cur === d} onClick={() => { setFilters({ asOfDate: d }); close(); }}>
+              {d}
+            </MenuItem>
+          ))}
+        </div>
+      )}
+    </Dropdown>
+  );
+}
+
 /* ---------- The full filter bar (used in the shell) ---------- */
 export function FilterBar() {
   return (
@@ -269,6 +328,7 @@ export function FilterBar() {
       <span style={{ width: 1, height: 22, background: "var(--border)", flexShrink: 0 }} />
       <TaxToggle />
       <ComparisonSelector />
+      <AsOfPicker />
       <div style={{ flex: 1 }} />
     </div>
   );

@@ -42,11 +42,11 @@ export function MatrixCol({ title, sub, accent, children }: MatrixColProps) {
           overflow: "hidden",
         }}
       >
-        <h3 style={{ margin: 0, fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap" }}>{title}</h3>
+        <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap" }}>{title}</h3>
         {sub && (
           <span
             style={{
-              fontSize: 10.5,
+              fontSize: 11.5,
               color: "var(--text-3)",
               whiteSpace: "nowrap",
               overflow: "hidden",
