@@ -10,6 +10,7 @@ import { usePathname } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { Sidebar, NAV } from "./sidebar";
 import { FilterBar } from "./filter-bar";
+import { UserMenu } from "./user-menu";
 
 function currentTitle(pathname: string): string {
   for (const g of NAV) {
@@ -75,6 +76,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {title}
           </h1>
           <div style={{ flex: 1 }} />
+          <UserMenu />
         </header>
 
         {/* filter bar (needs searchParams -> Suspense) */}
