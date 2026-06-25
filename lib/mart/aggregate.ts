@@ -115,6 +115,27 @@ export interface StayNightsMartRow {
   grossAmount: number;
   taxAmount: number;
   netAmount: number;
+  /** ADR 加重和（税込）= Σ_泊数セル( round(宿泊費/室泊) × 室泊 )。Excel 泊数分布(NEW) の SUMPRODUCT 分子。 */
+  adrWeightedNum: number;
+  /** 同伴係数 加重和 = Σ_泊数セル( round(人数/予約,2) × 予約件数 )。 */
+  compWeightedNum: number;
+  /** 占有母数（稼働分析と同基準）: ROOMS フィルタの実室泊。ADR/同伴係数 の分母。 */
+  occSoldRoomNights: number;
+  /** 占有母数: ROOMS フィルタの全行人数。同伴係数 の分子。 */
+  occGuestCount: number;
+  /** 占有母数: AMT フィルタの売上（税込）。ADR の分子。 */
+  occGrossAmount: number;
+  /** 占有母数: AMT フィルタの純売上。net 表示時の ADR 分子。 */
+  occNetAmount: number;
+}
+
+/** 銀行家丸め（round half to even）= create_report.py の Python round()。非負前提。 */
+function bankersRound(v: number, decimals = 0): number {
+  const f = 10 ** decimals;
+  const n = v * f;
+  const fl = Math.floor(n);
+  const r = Math.abs(n - fl - 0.5) < 1e-9 ? (fl % 2 === 0 ? fl : fl + 1) : Math.round(n);
+  return r / f;
 }
 
 interface Resv {
@@ -150,22 +171,89 @@ export function stayNightReservations(canon: CanonicalStayNight[]): Resv[] {
 }
 
 export function aggregateStayNights(canon: CanonicalStayNight[]): StayNightsMartRow[] {
-  const map = new Map<string, StayNightsMartRow>();
+  // ① (施設, チェックイン月, 部屋タイプ, 泊数=厳密) セルに集計。
+  //    室数 = 予約件数 × 泊数（1予約=1室×泊数）。実室泊行の合算ではない（複数室/補正重複行で過大計上のため）。
+  interface Cell {
+    facilityId: string; month: string; roomType: string; nights: number;
+    resv: number; guests: number; gross: number; tax: number; net: number; roomNights: number;
+  }
+  const cells = new Map<string, Cell>();
   for (const r of stayNightReservations(canon)) {
     const month = `${r.checkin.slice(0, 7)}-01`;
-    const b = nightsBucket(r.nights);
-    const mk = `${r.facilityId}|${month}|${r.roomType}|${b}`;
+    const ck = `${r.facilityId}|${month}|${r.roomType}|${r.nights}`;
+    let c = cells.get(ck);
+    if (!c) {
+      c = { facilityId: r.facilityId, month, roomType: r.roomType, nights: r.nights, resv: 0, guests: 0, gross: 0, tax: 0, net: 0, roomNights: 0 };
+      cells.set(ck, c);
+    }
+    c.resv += 1;
+    c.guests += r.guestsFirst;
+    c.gross += r.gross;
+    c.tax += r.tax;
+    c.net += r.net;
+    c.roomNights += r.nights;
+  }
+  // ② 泊数バケットへ rollup。ADR/同伴係数 はセル丸め値の加重和（Excel 泊数分布(NEW) の SUMPRODUCT 式）。
+  const map = new Map<string, StayNightsMartRow>();
+  for (const c of cells.values()) {
+    const b = nightsBucket(c.nights);
+    const mk = `${c.facilityId}|${c.month}|${c.roomType}|${b}`;
     let row = map.get(mk);
     if (!row) {
-      row = { facilityId: r.facilityId, checkinMonth: month, roomTypeNormalized: r.roomType, nightsBucket: b, reservationCount: 0, soldRoomNights: 0, guestCount: 0, grossAmount: 0, taxAmount: 0, netAmount: 0 };
+      row = { facilityId: c.facilityId, checkinMonth: c.month, roomTypeNormalized: c.roomType, nightsBucket: b, reservationCount: 0, soldRoomNights: 0, guestCount: 0, grossAmount: 0, taxAmount: 0, netAmount: 0, adrWeightedNum: 0, compWeightedNum: 0, occSoldRoomNights: 0, occGuestCount: 0, occGrossAmount: 0, occNetAmount: 0 };
       map.set(mk, row);
     }
-    row.reservationCount += 1;
-    row.soldRoomNights += r.roomNights;
-    row.guestCount += r.guestsFirst;
-    row.grossAmount += r.gross;
-    row.taxAmount += r.tax;
-    row.netAmount += r.net;
+    row.reservationCount += c.resv;
+    row.soldRoomNights += c.roomNights;
+    row.guestCount += c.guests;
+    row.grossAmount += c.gross;
+    row.taxAmount += c.tax;
+    row.netAmount += c.net;
+    // セル単位 ADR（税込）= round(宿泊費/室泊)、同伴係数 = round(人数/予約,2)。Python round=銀行家丸め。
+    const adrCell = c.roomNights > 0 ? bankersRound(c.gross / c.roomNights, 0) : 0;
+    const compCell = c.resv > 0 ? bankersRound(c.guests / c.resv, 2) : 0;
+    row.adrWeightedNum += adrCell * c.roomNights;
+    row.compWeightedNum += compCell * c.resv;
+  }
+  // ③ 占有母数（稼働分析=daily_facility_metrics と同基準）を 泊数セル粒度で別途集計。
+  //    稼働分析は stay_date 基準で【全行】（空OTA/部屋タイプの dropna 行も含む）を数えるため、
+  //    ここでも canon 全行を ROOMS/AMT で取り込み、総計が稼働分析と一致するようにする。
+  //    - 予約が畳める行（OTA予約番号・部屋タイプあり）→ 予約のチェックイン月/泊数バケットへ（①セルと一致）。
+  //    - 畳めない行（空キー or is_stay_night 行を持たない予約）→ その行自身の stay_date 月・nights バケットへ。
+  //    どちらも該当セルが無ければ作成（reservation 系フィールドは 0 のまま）。
+  interface ResvMeta { checkin: string; nights: number }
+  const meta = new Map<string, ResvMeta>();
+  for (const c of canon) {
+    if (!c.isStayNight || c.isCancelled) continue;
+    if ((c.nights ?? 0) <= 0) continue;
+    if (!c.otaReservationNo || !c.roomTypeRaw) continue;
+    const k = `${c.facilityId}|${c.otaReservationNo}|${c.roomTypeRaw}`;
+    const cur = meta.get(k);
+    if (!cur) meta.set(k, { checkin: c.stayDate, nights: c.nights ?? 0 });
+    else if (c.stayDate < cur.checkin) cur.checkin = c.stayDate; // チェックイン月=最小利用日。nights は初回行のまま
+  }
+  const resvMeta = new Map<string, { month: string; bucket: NightsBucket }>();
+  for (const [k, m] of meta) resvMeta.set(k, { month: `${m.checkin.slice(0, 7)}-01`, bucket: nightsBucket(m.nights) });
+  const ensureRow = (facilityId: string, month: string, roomType: string, bucket: NightsBucket): StayNightsMartRow => {
+    const mk = `${facilityId}|${month}|${roomType}|${bucket}`;
+    let row = map.get(mk);
+    if (!row) {
+      row = { facilityId, checkinMonth: month, roomTypeNormalized: roomType, nightsBucket: bucket, reservationCount: 0, soldRoomNights: 0, guestCount: 0, grossAmount: 0, taxAmount: 0, netAmount: 0, adrWeightedNum: 0, compWeightedNum: 0, occSoldRoomNights: 0, occGuestCount: 0, occGrossAmount: 0, occNetAmount: 0 };
+      map.set(mk, row);
+    }
+    return row;
+  };
+  for (const c of canon) {
+    if (c.isCancelled) continue;
+    const stay = isStay(c), amt = isAmt(c);
+    if (!stay && !amt) continue;
+    const rkey = c.otaReservationNo && c.roomTypeRaw ? `${c.facilityId}|${c.otaReservationNo}|${c.roomTypeRaw}` : null;
+    const rm = rkey ? resvMeta.get(rkey) : undefined;
+    const month = rm ? rm.month : `${c.stayDate.slice(0, 7)}-01`;
+    const bucket = rm ? rm.bucket : nightsBucket(c.nights ?? 0);
+    const row = ensureRow(c.facilityId, month, c.roomTypeRaw ?? "", bucket);
+    if (stay) { row.occSoldRoomNights += c.soldRoomNights; row.occGuestCount += c.guestCount ?? 0; }
+    if (amt) { row.occGrossAmount += c.feeAdjustedGrossAmount ?? 0; row.occNetAmount += c.feeAdjustedNetAmount ?? 0; }
   }
   return [...map.values()];
 }

@@ -49,10 +49,13 @@ async function main() {
   const wb = XLSX.readFile(XLSM, { bookVBA: false });
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets["予算表"]);
   await c.connect();
+  // 税抜売上・宿泊人数の列を保証（migration 20260624130000 相当）
+  await c.query("alter table app.budgets add column if not exists budget_net_amount numeric not null default 0");
+  await c.query("alter table app.budgets add column if not exists budget_guest_count integer not null default 0");
   const fac = await c.query("select facility_code, id from app.facilities");
   const codeToId = new Map(fac.rows.map((r) => [r.facility_code, r.id]));
 
-  const agg = new Map<string, { facilityId: string; month: string; sellable: number; budRev: number; budRooms: number }>();
+  const agg = new Map<string, { facilityId: string; month: string; sellable: number; budRev: number; budRevNet: number; budRooms: number; budGuests: number }>();
   let skipped = 0;
   for (const r of rows) {
     const sName = String(r["施設名"] ?? "").trim();
@@ -63,10 +66,12 @@ async function main() {
     if (!facilityId) { skipped++; continue; }
     const month = serialToMonthStart(Number(r["年月初日"]));
     const k = `${facilityId}|${month}`;
-    const e = agg.get(k) ?? { facilityId, month, sellable: 0, budRev: 0, budRooms: 0 };
+    const e = agg.get(k) ?? { facilityId, month, sellable: 0, budRev: 0, budRevNet: 0, budRooms: 0, budGuests: 0 };
     e.sellable += Number(r["稼働日数"]) || 0;
-    e.budRev += Number(r["売上予算(税込)"]) || 0;
+    e.budRev += Number(r["売上予算(税込)"]) || 0;       // 税込
+    e.budRevNet += Number(r["売上予算"]) || 0;          // 税抜
     e.budRooms += Number(r["使用客室数"]) || 0;
+    e.budGuests += Number(r["宿泊人数"]) || 0;
     agg.set(k, e);
   }
   console.log(`予算表 ${rows.length}行 → ${agg.size} (施設×月) / 除外行 ${skipped}`);
@@ -80,8 +85,9 @@ async function main() {
       [e.facilityId, e.month, Math.round(e.sellable / days), Math.round(e.sellable)],
     );
     await c.query(
-      "insert into app.budgets (facility_id, month, budget_room_type, budget_amount, budget_room_nights) values ($1,$2,'',$3,$4)",
-      [e.facilityId, e.month, Math.round(e.budRev), Math.round(e.budRooms)],
+      `insert into app.budgets (facility_id, month, budget_room_type, budget_amount, budget_room_nights, budget_net_amount, budget_guest_count)
+       values ($1,$2,'',$3,$4,$5,$6)`,
+      [e.facilityId, e.month, Math.round(e.budRev), Math.round(e.budRooms), Math.round(e.budRevNet), Math.round(e.budGuests)],
     );
   }
   const ri = await c.query("select count(*)::int n, coalesce(sum(sellable_room_nights),0)::int s from app.room_inventory_months");

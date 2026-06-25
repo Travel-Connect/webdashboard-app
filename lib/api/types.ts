@@ -14,6 +14,8 @@ export const dashboardQuerySchema = z
     period: z.enum(["monthly", "yearly"]),
     taxMode: z.enum(["gross", "net"]),
     compareWith: z.enum(["previous_year", "budget", "previous_snapshot"]).optional(),
+    asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), // 指定日取込の取込日(YYYY-MM-DD)
+    roomType: z.string().min(1).optional(), // 泊数分布の部屋タイプ絞り込み（未指定=全室タイプ）
   })
   .refine((q) => q.period !== "monthly" || q.month != null, {
     message: "period=monthly のとき month は必須です",
@@ -33,6 +35,8 @@ export interface DashboardFilters {
   period: Period;
   taxMode: TaxMode;
   compareWith?: CompareWith;
+  asOfDate?: string; // previous_snapshot の取込日(YYYY-MM-DD)。未指定なら最新前日にフォールバック
+  roomType?: string; // 泊数分布の部屋タイプ絞り込み（room_type_normalized）。未指定=全室タイプ
 }
 
 // ---- 共通 response 封筒 ----
@@ -48,6 +52,7 @@ export interface DashboardComparison<TComparisonRow> {
   basis: CompareWith;
   metrics: MetricComparison[];
   rows: TComparisonRow[];
+  asOf?: string; // previous_snapshot で解決された取込日 (YYYY-MM-DD)
 }
 
 export interface DashboardResponse<TSummary, TRow, TSeries = never, TComparisonRow = TRow> {
@@ -177,8 +182,20 @@ export interface StayNightsRow {
   soldRoomNights: number;
   guestCount: number;
   revenue: number;
+  /** ADR = Σ占有売上 / Σ販売室数（稼働分析と同基準＝占有母数）。 */
   adr: number | null;
+  /** 同伴係数 = Σ宿泊人数 / Σ販売室数（稼働分析と同基準＝占有母数）。 */
   guestFactor: number | null;
+  /** 占有母数: 販売室数（実室泊）。ADR/同伴係数 の分母。 */
+  occSoldRoomNights: number;
+  /** 占有母数: 宿泊人数（全行）。同伴係数 の分子。 */
+  occGuestCount: number;
+  /** 占有母数: 売上（税表示反映後）。ADR の分子。 */
+  occRevenue: number;
+  /** （未使用）ADR 加重和 = Σ(セル丸めADR × 室泊数)（税表示反映済）。 */
+  adrWeightedNum: number;
+  /** （未使用）同伴係数 加重和 = Σ(セル丸め同伴係数 × 予約件数)。 */
+  compWeightedNum: number;
 }
 
 // ---- 5. 部屋タイプ別分析 ----
@@ -316,8 +333,23 @@ export interface BookingCurveMatrix {
   previous: BookingCurveYear | null;
 }
 
+// 稼働分析「A室数の試算」（残室を埋めるための目標単価・前年比）
+export interface OccupancyTargeting {
+  sellableRoomNights: number;
+  remainingRoomNights: number;
+  soldRoomNights: number;
+  roomRevenue: number;
+  budgetRevenue: number | null;
+  revenueGap: number | null;
+  requiredAdr: number | null;
+  previousYearRevenue: number | null;
+  yoyRate: number | null;
+}
+
 // 各エンドポイントの response 別名
-export type OccupancyResponse = DashboardResponse<OccupancySummary, OccupancyRow>;
+export interface OccupancyResponse extends DashboardResponse<OccupancySummary, OccupancyRow> {
+  targeting?: OccupancyTargeting;
+}
 export interface ChannelsResponse extends DashboardResponse<ChannelSummary, ChannelRow> {
   matrix: ChannelMatrix;
   matrixPrevious?: ChannelMatrix | null;
@@ -328,7 +360,10 @@ export interface RoomTypesResponse extends DashboardResponse<RoomTypeRow, RoomTy
 export interface NationalitiesResponse extends DashboardResponse<NationalitySummary, NationalityRow> {
   matrix: NationalityMatrix;
 }
-export type StayNightsResponse = DashboardResponse<StayNightsSummary, StayNightsRow>;
+export interface StayNightsResponse extends DashboardResponse<StayNightsSummary, StayNightsRow> {
+  /** 施設×期間で選択可能な部屋タイプ（room_type_normalized, 売上降順）。部屋タイプ選択UIの母集合。 */
+  roomTypes: string[];
+}
 export interface BookingCurveResponse extends DashboardResponse<BookingCurveSummary, BookingCurveRow> {
   matrix: BookingCurveMatrix;
 }

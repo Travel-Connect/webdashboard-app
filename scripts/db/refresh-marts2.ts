@@ -86,13 +86,19 @@ async function main() {
     country.map((r) => ({ facility_id: r.facilityId, stay_month: r.stayMonth, country_major: r.countryMajor, country_middle: r.countryMiddle, country_normalized: r.countryNormalized, sold_room_nights: r.soldRoomNights, guest_count: r.guestCount, gross_amount: r.grossAmount, tax_amount: r.taxAmount, net_amount: r.netAmount, reservation_count: r.reservationCount, multi_night_reservation_count: r.multiNightReservationCount, lead_time_total: r.leadTimeTotal, lead_time_count: r.leadTimeCount })),
   );
 
-  // 泊数分布
+  // 泊数分布（ADR/同伴係数 はセル丸め値の加重和を保持＝Excel SUMPRODUCT 式）
+  await c.query(`alter table mart.stay_nights_distribution add column if not exists adr_weighted_num  numeric not null default 0`);
+  await c.query(`alter table mart.stay_nights_distribution add column if not exists comp_weighted_num numeric not null default 0`);
+  await c.query(`alter table mart.stay_nights_distribution add column if not exists occ_sold_room_nights numeric not null default 0`);
+  await c.query(`alter table mart.stay_nights_distribution add column if not exists occ_guest_count integer not null default 0`);
+  await c.query(`alter table mart.stay_nights_distribution add column if not exists occ_gross_amount numeric not null default 0`);
+  await c.query(`alter table mart.stay_nights_distribution add column if not exists occ_net_amount numeric not null default 0`);
   const sn: StayNightsMartRow[] = aggregateStayNights(canon);
   await insertBatched(
     "mart.stay_nights_distribution",
-    ["facility_id", "checkin_month", "room_type_normalized", "nights_bucket", "reservation_count", "sold_room_nights", "guest_count", "gross_amount", "tax_amount", "net_amount"],
-    "facility_id uuid, checkin_month date, room_type_normalized text, nights_bucket text, reservation_count int, sold_room_nights numeric, guest_count int, gross_amount numeric, tax_amount numeric, net_amount numeric",
-    sn.map((r) => ({ facility_id: r.facilityId, checkin_month: r.checkinMonth, room_type_normalized: r.roomTypeNormalized, nights_bucket: r.nightsBucket, reservation_count: r.reservationCount, sold_room_nights: r.soldRoomNights, guest_count: r.guestCount, gross_amount: r.grossAmount, tax_amount: r.taxAmount, net_amount: r.netAmount })),
+    ["facility_id", "checkin_month", "room_type_normalized", "nights_bucket", "reservation_count", "sold_room_nights", "guest_count", "gross_amount", "tax_amount", "net_amount", "adr_weighted_num", "comp_weighted_num", "occ_sold_room_nights", "occ_guest_count", "occ_gross_amount", "occ_net_amount"],
+    "facility_id uuid, checkin_month date, room_type_normalized text, nights_bucket text, reservation_count int, sold_room_nights numeric, guest_count int, gross_amount numeric, tax_amount numeric, net_amount numeric, adr_weighted_num numeric, comp_weighted_num numeric, occ_sold_room_nights numeric, occ_guest_count int, occ_gross_amount numeric, occ_net_amount numeric",
+    sn.map((r) => ({ facility_id: r.facilityId, checkin_month: r.checkinMonth, room_type_normalized: r.roomTypeNormalized, nights_bucket: r.nightsBucket, reservation_count: r.reservationCount, sold_room_nights: r.soldRoomNights, guest_count: r.guestCount, gross_amount: r.grossAmount, tax_amount: r.taxAmount, net_amount: r.netAmount, adr_weighted_num: r.adrWeightedNum, comp_weighted_num: r.compWeightedNum, occ_sold_room_nights: r.occSoldRoomNights, occ_guest_count: r.occGuestCount, occ_gross_amount: r.occGrossAmount, occ_net_amount: r.occNetAmount })),
   );
 
   // ブッキングカーブ

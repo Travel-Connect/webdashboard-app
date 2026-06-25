@@ -19,6 +19,7 @@ import { readFileSync } from "node:fs";
 import * as XLSX from "xlsx";
 import { decodeUtf8, parseDate, dayDiff, monthStart } from "../../lib/adapters/shared";
 import { buildCanonicalRows, parseMinpakuinCsv } from "../../lib/adapters/minpakuin";
+import { stayNightReservations } from "../../lib/mart/aggregate";
 import type { CanonicalStayNight } from "../../lib/adapters/canonical-schema";
 import type { FeeAdjustmentRule, NormalizeContext, ParsedSourceRows } from "../../lib/adapters/types";
 
@@ -242,6 +243,7 @@ function main() {
   // ---- 泊数分布（予約単位）----
   console.log("[泊数分布]（予約単位: 施設×OTA予約番号×部屋タイプ）");
   staynights(canon, wb);
+  staynightsBucket(canon, wb);
 
   // ---- ブッキングカーブ ----
   console.log("[ブッキングカーブ]（リードタイム累積・室数）");
@@ -256,7 +258,7 @@ function main() {
 
 // 泊数分布: canonical を (施設, OTA予約番号, 部屋タイプ) で予約単位に畳み、チェックイン月×泊数で集計
 function staynights(canon: CanonicalStayNight[], wb: XLSX.WorkBook) {
-  interface Res { checkin: string; nights: number; gross: number; tax: number; guestsFirst: number; firstStay: string }
+  interface Res { checkin: string; nights: number; gross: number; tax: number; guestsFirst: number; firstStay: string; roomNights: number }
   const res = new Map<string, Res>();
   for (const c of canon) {
     if (!c.isStayNight || c.isCancelled) continue;
@@ -267,14 +269,16 @@ function staynights(canon: CanonicalStayNight[], wb: XLSX.WorkBook) {
     const cur = res.get(k);
     // create_report: 合計人数=first(グループ内の最初の行), チェックイン日=min(部屋利用日)。
     // canon は CSV(入力)順なので、最初に出現した行の guestCount を first として保持する。
-    if (!cur) res.set(k, { checkin: c.stayDate, nights: n, gross: c.feeAdjustedGrossAmount ?? 0, tax: c.taxAmount ?? 0, guestsFirst: c.guestCount ?? 0, firstStay: c.stayDate });
+    if (!cur) res.set(k, { checkin: c.stayDate, nights: n, gross: c.feeAdjustedGrossAmount ?? 0, tax: c.taxAmount ?? 0, guestsFirst: c.guestCount ?? 0, firstStay: c.stayDate, roomNights: c.soldRoomNights });
     else {
       cur.gross += c.feeAdjustedGrossAmount ?? 0;
       cur.tax += c.taxAmount ?? 0;
+      cur.roomNights += c.soldRoomNights;
       if (c.stayDate < cur.checkin) cur.checkin = c.stayDate; // チェックイン月は最小利用日。guestsFirst は最初の行のまま
     }
   }
   const cnt: Row = {}, guests: Row = {}, gross: Row = {}, tax: Row = {};
+  const roomC: Row = {}, nightsA: Row = {};
   for (const [k, r] of res) {
     const facility = k.split("|")[0];
     const month = `${r.checkin.slice(0, 7)}-01`;
@@ -283,11 +287,110 @@ function staynights(canon: CanonicalStayNight[], wb: XLSX.WorkBook) {
     add(guests, cell, r.guestsFirst);
     add(gross, cell, r.gross);
     add(tax, cell, r.tax);
+    add(roomC, cell, r.roomNights); // C = Σ 実室泊（mart の sold_room_nights）
+    add(nightsA, cell, r.nights);   // A = Σ 泊数 = 予約件数 × 泊数（1予約=1室前提）
   }
   compare("予約件数", cnt, sheetAgg(wb, "泊数分布", ["施設名", "チェックイン月", "部屋タイプ", "泊数"], "予約件数", ["チェックイン月"]));
   compare("宿泊費", gross, sheetAgg(wb, "泊数分布", ["施設名", "チェックイン月", "部屋タイプ", "泊数"], "宿泊費", ["チェックイン月"]));
   compare("消費税", tax, sheetAgg(wb, "泊数分布", ["施設名", "チェックイン月", "部屋タイプ", "泊数"], "消費税", ["チェックイン月"]));
   compare("合計人数", guests, sheetAgg(wb, "泊数分布", ["施設名", "チェックイン月", "部屋タイプ", "泊数"], "合計人数", ["チェックイン月"]));
+
+  // ---- 室数(sold_room_nights) 診断: Excel ADR から室泊を逆算し C(sum) と A(予約×泊) を突合 ----
+  // ---- ＋ ADR / 同伴係数 の丸め突合（mart の式: round(宿泊費/室数) / round(人数/予約,2)）----
+  const { header, rows } = readSheet(wb, "泊数分布");
+  const ix = (n: string) => header.indexOf(n);
+  let okC = 0, okA = 0, total = 0, diffCA = 0;
+  let adrOk = 0, compOk = 0, adrTot = 0;
+  const ex: string[] = [];
+  const adrEx: string[] = [], compEx: string[] = [];
+  // Python round() = banker's rounding（round half to even）。create_report は Python。
+  const bank = (v: number, dec: number) => {
+    const f = 10 ** dec, n = v * f, fl = Math.floor(n);
+    const r = Math.abs(n - fl - 0.5) < 1e-9 ? (fl % 2 === 0 ? fl : fl + 1) : Math.round(n);
+    return r / f;
+  };
+  for (const r of rows) {
+    if (r[ix("施設名")] === undefined || r[ix("施設名")] === "") continue;
+    const cell = `${r[ix("施設名")]}|${serialToYmd(Number(r[ix("チェックイン月")]))}|${r[ix("部屋タイプ")]}|${r[ix("泊数")]}`;
+    const adr = Number(r[ix("ADR")]) || 0;
+    const exComp = Number(r[ix("同伴係数")]) || 0;
+    const g = Number(r[ix("宿泊費")]) || 0;
+    if (adr <= 0) continue;
+    const xExcel = Math.round(g / adr);
+    const c = roomC[cell] ?? 0, a = nightsA[cell] ?? 0;
+    total++;
+    if (c === xExcel) okC++;
+    if (a === xExcel) okA++;
+    if (c !== a) diffCA++;
+    if (c !== xExcel && ex.length < 12) ex.push(`  ${cell}: excel室泊=${xExcel} sum(C)=${c} 予約×泊(A)=${a} 宿泊費=${g} ADR=${adr}`);
+    // ADR / 同伴係数（室数=A=Σnights を使用）
+    const res = cnt[cell] ?? 0, gst = guests[cell] ?? 0;
+    if (a > 0 && res > 0) {
+      adrTot++;
+      const myAdr = bank(g / a, 0);
+      const myComp = bank(gst / res, 2);
+      if (myAdr === adr) adrOk++; else if (adrEx.length < 8) adrEx.push(`  ADR ${cell}: excel=${adr} mine=${myAdr} (宿泊費=${g} 室数=${a})`);
+      if (Math.abs(myComp - exComp) < 1e-9) compOk++; else if (compEx.length < 8) compEx.push(`  同伴 ${cell}: excel=${exComp} mine=${myComp} (人数=${gst} 予約=${res})`);
+    }
+  }
+  console.log(`\n[室数診断] total=${total} / sum(C)一致=${okC} / 予約×泊(A)一致=${okA} / C≠Aセル=${diffCA}`);
+  if (ex.length) console.log("C≠excel の例:\n" + ex.join("\n"));
+  console.log(`[ADR/同伴 丸め診断] total=${adrTot} / ADR一致=${adrOk} / 同伴係数一致=${compOk}`);
+  if (adrEx.length) console.log("ADR不一致の例:\n" + adrEx.join("\n"));
+  if (compEx.length) console.log("同伴係数不一致の例:\n" + compEx.join("\n"));
+}
+
+// 泊数バケットの ADR/同伴係数 を Excel 泊数分布(NEW) の SUMPRODUCT 式と突合（部屋タイプ横断＝ダッシュボード粒度）。
+// ・canonical → 泊数厳密セルで per-cell 丸め(銀行家)→ bucket 加重和（= mart の adr_weighted_num / comp_weighted_num）
+// ・raw シートの per-cell ADR/同伴係数 → 同じ加重で bucket 集計（= Excel 式）
+// 両者が一致すれば、ダッシュボード(=mart 加重和) が Excel 泊数分布(NEW) と一致することの証明になる。
+function staynightsBucket(canon: CanonicalStayNight[], wb: XLSX.WorkBook) {
+  const bk = (n: number) => (n <= 1 ? "1" : n === 2 ? "2" : n <= 4 ? "3_4" : n <= 6 ? "5_6" : "7_plus");
+  const bankers = (v: number, d: number) => { const f = 10 ** d, x = v * f, fl = Math.floor(x); const r = Math.abs(x - fl - 0.5) < 1e-9 ? (fl % 2 === 0 ? fl : fl + 1) : Math.round(x); return r / f; };
+  const rh = (v: number, d: number) => { const f = 10 ** d; return Math.round(v * f + 1e-9) / f; }; // 表示丸め(half away)
+  interface B { adrNum: number; rn: number; compNum: number; resv: number }
+  const ensure = (m: Map<string, B>, k: string) => { let b = m.get(k); if (!b) m.set(k, b = { adrNum: 0, rn: 0, compNum: 0, resv: 0 }); return b; };
+
+  // ① canonical → 泊数厳密セル → bucket 加重和（mart と同一ロジック）
+  interface Cell { gross: number; guests: number; resv: number; rn: number }
+  const cells = new Map<string, Cell>();
+  for (const r of stayNightReservations(canon)) {
+    const month = `${r.checkin.slice(0, 7)}-01`;
+    const k = `${r.facilityId}|${month}|${r.roomType}|${r.nights}`;
+    let c = cells.get(k);
+    if (!c) cells.set(k, c = { gross: 0, guests: 0, resv: 0, rn: 0 });
+    c.gross += r.gross; c.guests += r.guestsFirst; c.resv += 1; c.rn += r.nights;
+  }
+  const mine = new Map<string, B>();
+  for (const [k, c] of cells) {
+    const p = k.split("|");
+    const b = ensure(mine, `${p[0]}|${p[1]}|${bk(Number(p[3]))}`);
+    b.adrNum += bankers(c.gross / c.rn, 0) * c.rn; b.rn += c.rn;
+    b.compNum += bankers(c.guests / c.resv, 2) * c.resv; b.resv += c.resv;
+  }
+  // ② raw シート per-cell ADR/同伴係数 → bucket 加重和（Excel 式）
+  const { header, rows } = readSheet(wb, "泊数分布");
+  const ix = (n: string) => header.indexOf(n);
+  const excel = new Map<string, B>();
+  for (const r of rows) {
+    if (r[ix("施設名")] === undefined || r[ix("施設名")] === "") continue;
+    const nights = Number(r[ix("泊数")]), resv = Number(r[ix("予約件数")]) || 0, rn = nights * resv;
+    const b = ensure(excel, `${r[ix("施設名")]}|${serialToYmd(Number(r[ix("チェックイン月")]))}|${bk(nights)}`);
+    b.adrNum += (Number(r[ix("ADR")]) || 0) * rn; b.rn += rn;
+    b.compNum += (Number(r[ix("同伴係数")]) || 0) * resv; b.resv += resv;
+  }
+  // ③ bucket 表示値で突合
+  let adrOk = 0, compOk = 0, tot = 0; const ex: string[] = [];
+  for (const [k, b] of excel) {
+    const m = mine.get(k); if (!m || b.rn === 0) continue;
+    tot++;
+    const exAdr = rh(b.adrNum / b.rn, 0), myAdr = rh(m.adrNum / m.rn, 0);
+    const exComp = rh(b.compNum / b.resv, 2), myComp = rh(m.compNum / m.resv, 2);
+    if (exAdr === myAdr) adrOk++; else if (ex.length < 10) ex.push(`  ADR ${k}: excel=${exAdr} mine=${myAdr}`);
+    if (Math.abs(exComp - myComp) < 1e-9) compOk++; else if (ex.length < 10) ex.push(`  同伴 ${k}: excel=${exComp} mine=${myComp}`);
+  }
+  console.log(`\n[泊数バケット ADR/同伴 (Excel SUMPRODUCT 式)] bucket=${tot} / ADR一致=${adrOk} / 同伴一致=${compOk}`);
+  if (ex.length) console.log(ex.join("\n"));
 }
 
 const BUCKETS: [string, number][] = [
