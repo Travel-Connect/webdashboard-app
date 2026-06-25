@@ -81,15 +81,14 @@ Excel 対応シート: `国籍別分析(NEW)`。
 
 | field | definition |
 | --- | --- |
-| `reservation_room_count` | 同一予約・同一部屋タイプ内の `max(sold_room_nights)` |
-| `sold_room_nights` | `reservation_room_count * nights` |
-| `guest_count` | 同一予約・同一部屋タイプ内の代表値。日別行を sum しない |
+| `sold_room_nights` | **`nights`（1予約=1室として泊数そのもの）**。create_report は予約を1室として扱い、実室泊行（複数室番号・親子判別=0以外の補正重複行）の合算はしない。集計データ.xlsx の ADR から逆算した室泊（`宿泊費/ADR`）と完全一致（minpakuin-parity.ts で 9460/9460）。 |
+| `guest_count` | 同一予約・同一部屋タイプ内の代表値（最初の行）。日別行を sum しない |
 | `room_revenue` | 同一予約・同一部屋タイプの宿泊日別 `fee_adjusted_*` を sum |
 
 | KPI | 表示名 | 式 | 粒度 |
 | --- | --- | --- | --- |
 | `reservation_count` | 予約件数 | 予約数 | 施設+チェックイン月+泊数バケット |
-| `sold_room_nights` | 販売室数 | 予約単位集約後の `sum(reservation_room_count * nights)` | 施設+チェックイン月+泊数バケット |
+| `sold_room_nights` | 販売室数 | 予約単位集約後の `sum(nights)` = 予約件数 × 泊数 | 施設+チェックイン月+泊数バケット |
 | `guest_count` | 合計人数 | 予約単位人数合計 | 施設+チェックイン月+泊数バケット |
 | `room_revenue` | 売上 | 税表示に応じた補正後金額合計 | 施設+チェックイン月+泊数バケット |
 | `average_nights` | 平均泊数 | `sold_room_nights / reservation_count` | 施設+チェックイン月 |
