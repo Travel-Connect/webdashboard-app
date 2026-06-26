@@ -6,7 +6,13 @@ import { cmp, occupancyMetrics } from "./compare";
 const ratio = (a: number, b: number): number | null => (b > 0 ? a / b : null);
 const ymd = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 const daysIn = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
-const dateStr = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10));
+const dateStr = (v: unknown) => {
+  if (v instanceof Date) {
+    // PG date が UTC Date になるため toISOString() だと JST 月初が前月末日になる（例: 2026-01-01 → 2025-12-31）
+    return v.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+  }
+  return String(v).slice(0, 10);
+};
 
 interface PeriodAgg {
   rows: OccupancyRow[];
@@ -236,6 +242,26 @@ export async function buildOccupancy(pool: Pool, f: DashboardFilters): Promise<O
   const bud = await aggregateBudget(pool, f);
   const prev = await aggregate(pool, f, f.year - 1);
 
+  // 当年実績テーブルの「予算」行用に、予算サマリを完全な OccupancySummary 形へ整形して公開。
+  // bud.summary に無い派生指標（残室・客単価・同伴係数）はここで補完する。比較基準に依らず常に付与。
+  if (bud.hasData) {
+    const b = bud.summary;
+    res.budget = {
+      soldRoomNights: b.soldRoomNights,
+      sellableRoomNights: b.sellableRoomNights,
+      remainingRoomNights: b.sellableRoomNights - b.soldRoomNights,
+      occupancyRate: b.occupancyRate,
+      guestCount: b.guestCount,
+      roomRevenue: b.roomRevenue,
+      guestUnitPrice: ratio(b.roomRevenue, b.guestCount),
+      adr: b.adr,
+      revpar: b.revpar,
+      avgGuestsPerRoom: ratio(b.guestCount, b.soldRoomNights),
+    };
+  } else {
+    res.budget = null;
+  }
+
   if (f.compareWith === "previous_year") {
     res.comparison = {
       basis: "previous_year",
@@ -283,13 +309,24 @@ export async function buildOccupancy(pool: Pool, f: DashboardFilters): Promise<O
   const budgetRevenue = bud.hasData ? bud.summary.roomRevenue : null;
   const previousYearRevenue = prev.summary.roomRevenue;
   const revenueGap = budgetRevenue != null ? budgetRevenue - cur.summary.roomRevenue : null;
+
+  // 翌日以降（明日〜期間末）の残室合計。過去日・当日は販売不可なので除外する。
+  // monthly は日次行で厳密（例: 今日6/26 → 6/27〜月末の残室和）、
+  // yearly は当月以降の月次行（当月の残日は含めない粗め集計）。
+  const todayJst = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+  const futureRemainingRoomNights = cur.rows
+    .filter((r) => r.date > todayJst)
+    .reduce((s, r) => s + r.remainingRoomNights, 0);
+
+  // 必要単価は「これから販売できる残室（翌日以降）」を売り切って目標達成する平均単価。
   const requiredAdr =
-    revenueGap != null && revenueGap > 0 && cur.summary.remainingRoomNights > 0
-      ? revenueGap / cur.summary.remainingRoomNights
+    revenueGap != null && revenueGap > 0 && futureRemainingRoomNights > 0
+      ? revenueGap / futureRemainingRoomNights
       : null;
   const targeting: OccupancyTargeting = {
     sellableRoomNights: cur.summary.sellableRoomNights,
     remainingRoomNights: cur.summary.remainingRoomNights,
+    futureRemainingRoomNights,
     soldRoomNights: cur.summary.soldRoomNights,
     roomRevenue: cur.summary.roomRevenue,
     budgetRevenue,

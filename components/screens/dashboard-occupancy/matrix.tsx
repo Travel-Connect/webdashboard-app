@@ -67,6 +67,10 @@ export interface ActualMatrixProps {
   /** yearly view → rows are months. */
   monthMode?: boolean;
   rowH?: number;
+  /** 合計行の下に追加する「予算」行（Excel 同様）。null/未指定なら出さない。 */
+  budgetRow?: OccupancySummary | null;
+  /** 予算行のラベル（既定「予算」）。 */
+  budgetLabel?: string;
 }
 
 export function ActualMatrix({
@@ -75,6 +79,8 @@ export function ActualMatrix({
   totalLabel = "合計",
   monthMode = false,
   rowH,
+  budgetRow,
+  budgetLabel = "予算",
 }: ActualMatrixProps) {
   const td: CSSProperties = rowH
     ? { ...mTd, height: rowH, lineHeight: rowH + "px" }
@@ -213,6 +219,33 @@ export function ActualMatrix({
             </td>
           ))}
         </tr>
+        {/* 予算行（Excel 同様、合計行の直下にミュート表示）。 */}
+        {budgetRow && (
+          <tr>
+            <td style={{ ...mTdF, textAlign: "left", fontWeight: 600, color: "var(--text-2)", background: "var(--surface-3)" }}>
+              {budgetLabel}
+            </td>
+            {[
+              integer(budgetRow.soldRoomNights),
+              integer(budgetRow.remainingRoomNights),
+              pct(budgetRow.occupancyRate),
+              integer(budgetRow.guestCount),
+              integer(budgetRow.roomRevenue),
+              integer(budgetRow.guestUnitPrice),
+              integer(budgetRow.adr),
+              integer(budgetRow.revpar),
+              ratio2(budgetRow.avgGuestsPerRoom),
+            ].map((v, i) => (
+              <td
+                key={i}
+                style={{ ...mTdF, fontWeight: 400, color: "var(--text-2)", background: "var(--surface-3)" }}
+                className="tabular"
+              >
+                {v}
+              </td>
+            ))}
+          </tr>
+        )}
       </tfoot>
     </table>
   );

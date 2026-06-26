@@ -80,6 +80,7 @@ export default function OccupancyPage() {
 
   const summary = data?.summary;
   const rows = data?.rows ?? [];
+  const budget = data?.budget ?? null; // 当年実績テーブルの「予算」行用（予算未登録なら null）
   const cmp = data?.comparison ?? null;
   const baseline = cmp?.rows ?? null;
   const basis = cmp?.basis ?? null;
@@ -218,6 +219,7 @@ export default function OccupancyPage() {
                   totalLabel="合計"
                   monthMode={monthMode}
                   rowH={monthMode ? 26 : undefined}
+                  budgetRow={budget}
                 />
               </div>
             </MatrixCol>

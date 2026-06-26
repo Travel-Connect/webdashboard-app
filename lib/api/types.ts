@@ -337,6 +337,9 @@ export interface BookingCurveMatrix {
 export interface OccupancyTargeting {
   sellableRoomNights: number;
   remainingRoomNights: number;
+  /** 翌日以降（明日〜期間末）の残室合計。過去日は販売不可なので除外。
+   *  目標達成シミュレータの「残室」「必要単価」はこちらを基準にする。 */
+  futureRemainingRoomNights: number;
   soldRoomNights: number;
   roomRevenue: number;
   budgetRevenue: number | null;
@@ -349,6 +352,8 @@ export interface OccupancyTargeting {
 // 各エンドポイントの response 別名
 export interface OccupancyResponse extends DashboardResponse<OccupancySummary, OccupancyRow> {
   targeting?: OccupancyTargeting;
+  /** 予算サマリ（当年実績テーブルの「予算」行用）。対象施設×期間に予算が無ければ null。 */
+  budget?: OccupancySummary | null;
 }
 export interface ChannelsResponse extends DashboardResponse<ChannelSummary, ChannelRow> {
   matrix: ChannelMatrix;

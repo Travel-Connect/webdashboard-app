@@ -8,7 +8,7 @@
 
 import { Icon } from "@/components/ui/icon";
 import { MetricDelta } from "@/components/ui/primitives";
-import { yen, integer, percent } from "@/lib/dashboard/format";
+import { yen, yenCompact, integer, percent } from "@/lib/dashboard/format";
 import type { MetricComparison, OccupancySummary } from "@/lib/api/types";
 
 type KpiType = "pct" | "yen" | "int" | "ratio";
@@ -90,6 +90,8 @@ export function OccKpiStrip({ summary, metrics, compareLabel = "前年" }: OccKp
         const cmpVal =
           m == null ? null : isPoint ? pct100(m.diff) : ratePct(m.rate);
         const cmpUnit = isPoint ? "pt" : "%";
+        // 割合(%)に併記する実数差（稼働率=primary は pt 表示のため対象外）。
+        const dStr = primary || m == null ? null : diffText(k.type, m.diff, k.unit);
         return (
           <div
             key={k.label}
@@ -142,14 +144,24 @@ export function OccKpiStrip({ summary, metrics, compareLabel = "前年" }: OccKp
                 </span>
               )}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap" }}>
               <span style={{ fontSize: 10, color: primary ? "rgba(255,255,255,.55)" : "var(--text-3)" }}>
                 {compareLabel}
               </span>
               {primary ? (
                 <DeltaInv value={cmpVal} unit={cmpUnit} />
               ) : (
-                <MetricDelta value={cmpVal} unit={cmpUnit} invert={k.invert} />
+                <>
+                  <MetricDelta value={cmpVal} unit={cmpUnit} invert={k.invert} />
+                  {dStr && (
+                    <span
+                      className="tabular"
+                      style={{ fontSize: 10, color: "var(--text-3)", whiteSpace: "nowrap" }}
+                    >
+                      {dStr}
+                    </span>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -157,6 +169,18 @@ export function OccKpiStrip({ summary, metrics, compareLabel = "前年" }: OccKp
       })}
     </div>
   );
+}
+
+/** 比較の絶対差（実数）を指標の型に合わせて整形。割合(%)に併記する補助表示。
+ *  室/名 → 整数+単位、金額 → 億/万コンパクト、係数 → 小数2桁。符号付き。 */
+function diffText(type: KpiType, diff: number | null, unit?: string): string | null {
+  if (diff == null || Number.isNaN(diff)) return null;
+  const sign = diff > 0 ? "+" : diff < 0 ? "-" : "±";
+  const a = Math.abs(diff);
+  if (type === "yen") return sign + yenCompact(a);
+  if (type === "ratio") return sign + a.toFixed(2) + (unit ?? "");
+  // int（pct は primary=稼働率 で別表示のためここには来ない）
+  return sign + integer(a) + (unit ?? "");
 }
 
 /** API occupancyRate / diff are fractions (0–1); scale to percent/point units. */
