@@ -120,3 +120,31 @@ table.tbl tbody tr:last-child td { border-bottom: none; }
 @keyframes fi { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media print { .no-print { display: none !important; } }
+
+/* ============================================================
+   TOP ダッシュボード ウィジェットグリッド（.tdw-grid / .tdw-2 / .tdw-3）
+   新 Claude Design ローダー（宿泊BIダッシュボード.html）の 6カラム
+   レスポンシブグリッド。.tdw-2=2カラム（KPI=3列）/.tdw-3=3カラム（半幅）。
+   ============================================================ */
+.tdw-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+.tdw-grid > .tdw-2 { grid-column: span 2; }
+.tdw-grid > .tdw-3 { grid-column: span 3; }
+
+/* 中幅: 4カラム（KPI=2列 / 半幅ウィジェットは全幅） */
+@media (max-width: 1180px) {
+  .tdw-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tdw-grid > .tdw-2 { grid-column: span 2; }
+  .tdw-grid > .tdw-3 { grid-column: span 4; }
+}
+
+/* 狭幅: 2カラム（KPI=1列 / すべて全幅） */
+@media (max-width: 720px) {
+  .tdw-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tdw-grid > .tdw-2 { grid-column: span 2; }
+  .tdw-grid > .tdw-3 { grid-column: span 2; }
+}

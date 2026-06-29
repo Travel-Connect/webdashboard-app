@@ -7,7 +7,7 @@
    ============================================================ */
 
 import { useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import type { CompareWith, Period, TaxMode } from "@/lib/api/types";
 import { FILTER_DEFAULTS, useFilters } from "@/lib/dashboard/use-filters";
@@ -308,6 +308,10 @@ export function AsOfPicker() {
 
 /* ---------- The full filter bar (used in the shell) ---------- */
 export function FilterBar() {
+  const pathname = usePathname();
+  // 総合ダッシュボード(/dashboard)は専用の施設マルチセレクトパネルを持つため、
+  // グローバルの単一 FacilitySelector は非表示にする（他画面の挙動は不変）。
+  const isOverview = pathname === "/dashboard";
   return (
     <div
       style={{
@@ -322,7 +326,7 @@ export function FilterBar() {
         overflowX: "auto",
       }}
     >
-      <FacilitySelector />
+      {!isOverview && <FacilitySelector />}
       <PeriodSelector />
       <PeriodToggle />
       <span style={{ width: 1, height: 22, background: "var(--border)", flexShrink: 0 }} />
