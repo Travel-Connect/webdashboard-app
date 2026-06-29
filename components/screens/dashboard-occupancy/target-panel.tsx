@@ -107,6 +107,9 @@ export function TargetPanel({ targeting, taxMode }: TargetPanelProps) {
           remaining={t.futureRemainingRoomNights}
           requiredAdr={t.requiredAdr}
           currentAdr={t.soldRoomNights > 0 ? t.roomRevenue / t.soldRoomNights : null}
+          sold={t.soldRoomNights}
+          sellable={t.sellableRoomNights}
+          revenue={t.roomRevenue}
         />
       ) : (
         <StaticNote>翌日以降に販売できる残室がないため、目標単価は算出できません。</StaticNote>
@@ -150,12 +153,21 @@ function TargetSimulator({
   remaining,
   requiredAdr,
   currentAdr,
+  sold,
+  sellable,
+  revenue,
 }: {
   gap: number;
   /** 翌日以降の残室数（過去日・当日は除外）。 */
   remaining: number;
   requiredAdr: number | null;
   currentAdr: number | null;
+  /** 期間内の実績販売室泊（過去日含む合計）。達成時稼働率・ADRの分母に使う。 */
+  sold: number;
+  /** 期間内の販売可能室泊（稼働率の分母）。 */
+  sellable: number;
+  /** 期間内の実績客室売上（taxMode 準拠）。達成時ADRの分子に使う。 */
+  revenue: number;
 }) {
   const defaultPrice = useMemo(() => {
     if (requiredAdr != null && requiredAdr > 0) return Math.round(requiredAdr);
@@ -177,6 +189,21 @@ function TargetSimulator({
   const slack = roomsNeeded != null ? remaining - roomsNeeded : null;
   // この単価で残室を売り切っても届かない不足額（残室不足時の参考）。
   const shortfall = Math.max(0, gap - price * remaining);
+
+  // 目標達成（または残室を売り切った）段階での稼働率を試算。
+  // 分子 = 実績販売室泊 + この単価で売る室数（達成可能なら必要室数、残室不足なら残室を全部）。
+  const roomsToSell = roomsNeeded == null ? 0 : feasible ? roomsNeeded : remaining;
+  const currentOcc = sellable > 0 ? sold / sellable : null;
+  const projectedOcc = sellable > 0 ? (sold + roomsToSell) / sellable : null;
+  const occDeltaPt =
+    projectedOcc != null && currentOcc != null ? (projectedOcc - currentOcc) * 100 : null;
+
+  // 達成（または売り切り）時点の期間ADR（平均室単価）。
+  // 入力単価で roomsToSell 室を売り足した後の「総売上 ÷ 総販売室泊」。
+  const projectedSold = sold + roomsToSell;
+  const projectedAdr = projectedSold > 0 ? (revenue + roomsToSell * price) / projectedSold : null;
+  const adrDelta =
+    projectedAdr != null && currentAdr != null ? projectedAdr - currentAdr : null;
 
   const accent = feasible ? "var(--positive)" : "var(--danger)";
 
@@ -264,6 +291,57 @@ function TargetSimulator({
           </strong>
           室
         </div>
+        {/* 達成（残室不足時は売り切り）段階での稼働率 */}
+        {projectedOcc != null && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 4,
+              fontSize: 12.5,
+              color: "var(--text-2)",
+            }}
+          >
+            {feasible ? "達成時の稼働率" : "売り切り時の稼働率"}
+            <strong
+              className="tabular"
+              style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.02em", color: "var(--text)" }}
+            >
+              {percent(projectedOcc * 100, 1)}
+            </strong>
+            {occDeltaPt != null && occDeltaPt > 0.05 && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--positive)" }}>
+                +{occDeltaPt.toFixed(1)}pt
+              </span>
+            )}
+          </div>
+        )}
+        {/* 達成（残室不足時は売り切り）時点の期間ADR */}
+        {projectedAdr != null && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 4,
+              fontSize: 12.5,
+              color: "var(--text-2)",
+            }}
+          >
+            {feasible ? "達成時のADR" : "売り切り時のADR"}
+            <strong
+              className="tabular"
+              style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.02em", color: "var(--text)" }}
+            >
+              {yen(projectedAdr)}
+            </strong>
+            {adrDelta != null && Math.abs(adrDelta) >= 1 && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)" }}>
+                {adrDelta >= 0 ? "+" : "−"}
+                {yen(Math.abs(adrDelta))}
+              </span>
+            )}
+          </div>
+        )}
         <span
           style={{
             display: "inline-flex",
