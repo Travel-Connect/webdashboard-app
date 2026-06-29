@@ -30,7 +30,7 @@ export class ApiError extends Error {
   }
 }
 
-async function getJson<T>(url: string): Promise<T> {
+export async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) {
     let code: string | undefined;
