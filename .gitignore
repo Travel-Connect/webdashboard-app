@@ -23,6 +23,8 @@ logs/
 !fixtures/**/*.sanitized.csv
 # Allow committed master-data seed CSVs (must contain NO PII)
 !supabase/seed/**/*.csv
+# ...except 部屋タイプ別 客室数(実運用在庫データ)。公開リポジトリには載せない（DBが真実源）。
+supabase/seed/room_type_inventory*.csv
 
 # Claude Design prototype: vendor only the source (app/, html, README).
 # Exclude heavy/binary assets (pasted screenshots may contain real data).
