@@ -412,9 +412,18 @@ export interface LineSeries {
   /** dashed (e.g. previous-year / cancelled scope). */
   dashed?: boolean;
 }
+/** Grouped bars rendered behind the lines (categorical x). Presence switches x to a band scale. */
+export interface BarSeries {
+  label: string;
+  values: number[];
+  color: string;
+  axis?: "left" | "right";
+}
 export interface MultiLineChartProps {
   series: LineSeries[];
   xLabels: string[];
+  /** optional grouped bars drawn behind the lines (e.g. 販売客室数 当年/前年/先月). */
+  barSeries?: BarSeries[];
   /** left-axis tick formatter. */
   yFmt?: (v: number) => string | number;
   /** right-axis tick formatter. */
@@ -429,6 +438,7 @@ export interface MultiLineChartProps {
 export function MultiLineChart({
   series,
   xLabels,
+  barSeries,
   yFmt,
   yFmtRight,
   height = 320,
@@ -436,7 +446,9 @@ export function MultiLineChart({
   hoverFmt,
   hoverFmtRight,
 }: MultiLineChartProps) {
-  const hasRight = series.some((s) => s.axis === "right");
+  const bars = barSeries ?? [];
+  const band = bars.length > 0; // バーがある時はカテゴリ中央(band)スケールに切替
+  const hasRight = series.some((s) => s.axis === "right") || bars.some((b) => b.axis === "right");
   const W = 1000;
   const H = height;
   const padL = 64;
@@ -453,16 +465,18 @@ export function MultiLineChart({
     const step = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
     return step * p * Math.ceil(m / (step * p));
   };
-  const maxOf = (pred: (s: LineSeries) => boolean) => {
-    const vals = series
-      .filter(pred)
-      .flatMap((s) => s.values)
-      .filter((v) => v != null);
-    return niceMax(Math.max(...vals, 1) * 1.05);
+  const axisVals = (right: boolean) => {
+    const lv = series.filter((s) => (s.axis === "right") === right).flatMap((s) => s.values);
+    const bv = bars.filter((b) => (b.axis === "right") === right).flatMap((b) => b.values);
+    return [...lv, ...bv].filter((v) => v != null);
   };
-  const maxL = maxOf((s) => s.axis !== "right");
-  const maxR = hasRight ? maxOf((s) => s.axis === "right") : maxL;
-  const xAt = (i: number) => padL + (n === 1 ? innerW / 2 : (innerW * i) / (n - 1));
+  const maxL = niceMax(Math.max(...axisVals(false), 1) * 1.05);
+  const maxR = hasRight ? niceMax(Math.max(...axisVals(true), 1) * 1.05) : maxL;
+  const bandW = innerW / Math.max(1, n);
+  const xAt = (i: number) =>
+    band ? padL + bandW * (i + 0.5) : padL + (n === 1 ? innerW / 2 : (innerW * i) / (n - 1));
+  const groupW = band ? Math.min(bandW * 0.72, 78) : 0;
+  const barW = bars.length > 0 ? groupW / bars.length : 0;
   const yAt = (v: number, axis?: "left" | "right") =>
     padT + innerH - (v / (axis === "right" ? maxR : maxL)) * innerH;
   const toPath = (s: LineSeries) =>
@@ -517,6 +531,28 @@ export function MultiLineChart({
             </g>
           );
         })}
+        {bars.flatMap((b, bi) =>
+          b.values.map((v, i) => {
+            const x = xAt(i) - groupW / 2 + bi * barW;
+            const y = yAt(v, b.axis);
+            const h = padT + innerH - y;
+            const active = hover == null || hover === i;
+            return (
+              <rect
+                key={"bar-" + bi + "-" + i}
+                x={x}
+                y={y}
+                width={Math.max(1, barW * 0.84)}
+                height={Math.max(0, h)}
+                rx="1.5"
+                fill={b.color}
+                opacity={active ? 0.92 : 0.4}
+                onMouseEnter={() => setHover(i)}
+                style={{ transition: "opacity .12s" }}
+              />
+            );
+          }),
+        )}
         {xLabels.map((lb, i) => (
           <text
             key={i}
@@ -565,17 +601,21 @@ export function MultiLineChart({
             />
           )),
         )}
-        {xLabels.map((_, i) => (
-          <rect
-            key={i}
-            x={xAt(i) - innerW / Math.max(1, n - 1) / 2}
-            y={padT}
-            width={innerW / Math.max(1, n - 1)}
-            height={innerH}
-            fill="transparent"
-            onMouseEnter={() => setHover(i)}
-          />
-        ))}
+        {xLabels.map((_, i) => {
+          const hw = band ? bandW : innerW / Math.max(1, n - 1);
+          const hx = band ? padL + bandW * i : xAt(i) - hw / 2;
+          return (
+            <rect
+              key={i}
+              x={hx}
+              y={padT}
+              width={hw}
+              height={innerH}
+              fill="transparent"
+              onMouseEnter={() => setHover(i)}
+            />
+          );
+        })}
       </svg>
       <div
         style={{
@@ -586,6 +626,15 @@ export function MultiLineChart({
           marginTop: 4,
         }}
       >
+        {bars.map((b, bi) => (
+          <span
+            key={"bl-" + bi}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-2)" }}
+          >
+            <i style={{ display: "inline-block", width: 11, height: 11, borderRadius: 2, background: b.color }} />
+            {b.label}
+          </span>
+        ))}
         {series.map((s, si) => (
           <span
             key={si}
@@ -624,6 +673,24 @@ export function MultiLineChart({
           }}
         >
           <span style={{ fontWeight: 700, color: "var(--text)" }}>{xLabels[hover]}</span>
+          {bars.map((b, bi) => {
+            const f = b.axis === "right" ? hoverFmtRight || yFmtRight : hoverFmt || yFmt;
+            return (
+              <span key={"bh-" + bi}>
+                <i
+                  style={{
+                    display: "inline-block",
+                    width: 8,
+                    height: 8,
+                    borderRadius: 2,
+                    background: b.color,
+                    marginRight: 5,
+                  }}
+                />
+                {b.label}：{(f || ((v: number) => v))(b.values[hover])}
+              </span>
+            );
+          })}
           {series.map((s, si) => {
             const f =
               s.axis === "right" ? hoverFmtRight || yFmtRight : hoverFmt || yFmt;

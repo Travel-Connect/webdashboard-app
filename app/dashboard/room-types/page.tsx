@@ -15,6 +15,7 @@ import { useFilters } from "@/lib/dashboard/use-filters";
 import { MetricTabs, useMetricTabs } from "@/components/dashboard/metric-tabs";
 import { RT_METRICS, type RtMetricId } from "@/components/screens/dashboard-room-types/metrics";
 import { RtMatrixTable } from "@/components/screens/dashboard-room-types/rt-matrix";
+import { RoomTypeMonthlyView } from "@/components/screens/dashboard-room-types/monthly-view";
 
 const RT_IDS = RT_METRICS.map((m) => m.id);
 
@@ -62,7 +63,9 @@ export default function RoomTypesPage() {
   );
   const metric = useMetricTabs<RtMetricId>(RT_IDS, ["rev"]);
 
+  const isMonthly = filters.period === "monthly";
   const matrix = data?.matrix ?? null;
+  const detail = data?.monthlyDetail ?? null;
   const taxLabel = filters.taxMode === "gross" ? "税込" : "税抜";
   const shown = RT_METRICS.filter((m) => metric.sel.includes(m.id));
   const multi = shown.length > 1;
@@ -108,8 +111,15 @@ export default function RoomTypesPage() {
               textOverflow: "ellipsis",
             }}
           >
-            {facName} · {filters.year}年（月次）· {taxLabel}表示 · 指標：
-            <strong style={{ color: "var(--text)" }}>{metricLabels}</strong>
+            {facName} ·{" "}
+            {isMonthly ? `${filters.year}年${filters.month ?? "—"}月` : `${filters.year}年（月次12ヶ月）`} ·{" "}
+            {taxLabel}表示
+            {!isMonthly && (
+              <>
+                {" "}
+                · 指標：<strong style={{ color: "var(--text)" }}>{metricLabels}</strong>
+              </>
+            )}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
@@ -119,8 +129,8 @@ export default function RoomTypesPage() {
         </div>
       </div>
 
-      {/* metric selector */}
-      <MetricTabs metrics={RT_METRICS} state={metric} />
+      {/* metric selector（年間マトリクスのみ。月間は全指標を行展開するため非表示） */}
+      {!isMonthly && <MetricTabs metrics={RT_METRICS} state={metric} />}
 
       {/* body */}
       {error ? (
@@ -135,6 +145,20 @@ export default function RoomTypesPage() {
         <Panel title="部屋タイプ別マトリクス">
           <LoadingSkeleton rows={8} />
         </Panel>
+      ) : isMonthly ? (
+        !detail || detail.rows.length === 0 ? (
+          <Panel>
+            <EmptyState
+              icon="BedDouble"
+              title="対象期間の部屋タイプデータがありません"
+              body="フィルタ条件（施設・期間）を変更してお試しください。"
+            />
+          </Panel>
+        ) : (
+          <div style={{ flex: 1, minHeight: 0, overflow: "auto", paddingRight: 2 }}>
+            <RoomTypeMonthlyView detail={detail} />
+          </div>
+        )
       ) : !matrix || matrix.rows.length === 0 ? (
         <Panel>
           <EmptyState

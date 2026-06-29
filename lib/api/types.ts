@@ -228,6 +228,34 @@ export interface RoomTypeMatrix {
   grand: RtCell;
 }
 
+// 部屋タイプ別「月間」明細（当月 + 前年同月 + 先月）。列=部屋タイプ・行=指標の転置表 & 複合グラフ用。
+// 稼働率は部屋タイプ別在庫が無いため未対応（フロントで '—' 表示）。
+export interface RoomTypeMonthlyRow {
+  roomType: string;
+  revenue: number;
+  revenueShare: number | null; // 当月 自室タイプ売上 ÷ 全室タイプ売上合計（0..1）
+  soldRoomNights: number;
+  soldRoomNightsPrevYear: number | null;
+  soldRoomNightsPrevMonth: number | null;
+  guestCount: number;
+  adr: number | null;
+  adrPrevYear: number | null;
+  adrPrevMonth: number | null;
+  companion: number | null; // guest_count / sold_room_nights
+  avgNights: number | null; // sold_room_nights / reservation_count（近似・Excel突合で確定）
+  // 稼働率 = 販売室数 / (客室数 × 対象月の日数)。客室数マスタ(app.room_type_inventory)未登録なら null。
+  occupancy: number | null; // 0..1
+  occupancyPrevYear: number | null;
+  occupancyPrevMonth: number | null;
+}
+export interface RoomTypeMonthlyDetail {
+  facName: string;
+  year: number;
+  month: number; // 1-12
+  rows: RoomTypeMonthlyRow[]; // 当月売上の降順
+  total: RoomTypeMonthlyRow; // (合計)
+}
+
 // ---- 6. 全施設年間売上 ----
 export interface AnnualSalesRow {
   facilityId: string;
@@ -361,6 +389,8 @@ export interface ChannelsResponse extends DashboardResponse<ChannelSummary, Chan
 }
 export interface RoomTypesResponse extends DashboardResponse<RoomTypeRow, RoomTypeRow> {
   matrix: RoomTypeMatrix;
+  /** period=monthly のときのみ: 当月×前年同月×先月の部屋タイプ別明細（転置表＋複合グラフ用）。 */
+  monthlyDetail?: RoomTypeMonthlyDetail | null;
 }
 export interface NationalitiesResponse extends DashboardResponse<NationalitySummary, NationalityRow> {
   matrix: NationalityMatrix;
