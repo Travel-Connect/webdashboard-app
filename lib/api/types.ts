@@ -24,6 +24,23 @@ export const dashboardQuerySchema = z
 
 export type DashboardQuery = z.infer<typeof dashboardQuerySchema>;
 
+// 総合ダッシュボード(overview)専用 query。施設SET(facilityIds)を受ける。
+// compareWith は不要（overview は常に current + previousYear + budget を返す）。
+export const overviewQuerySchema = z
+  .object({
+    facilityIds: z.string().optional(), // CSV "uuid,uuid,..."（未指定=グループ全施設）
+    facilityId: z.string().optional(), // 後方互換（単一 or "all"）。facilityIds 優先
+    year: z.coerce.number().int(),
+    month: z.coerce.number().int().min(1).max(12).optional(),
+    period: z.enum(["monthly", "yearly"]),
+    taxMode: z.enum(["gross", "net"]),
+  })
+  .refine((q) => q.period !== "monthly" || q.month != null, {
+    message: "period=monthly のとき month は必須です",
+    path: ["month"],
+  });
+export type OverviewQuery = z.infer<typeof overviewQuerySchema>;
+
 export type TaxMode = "gross" | "net";
 export type Period = "monthly" | "yearly";
 export type CompareWith = "previous_year" | "budget" | "previous_snapshot";
@@ -37,6 +54,7 @@ export interface DashboardFilters {
   compareWith?: CompareWith;
   asOfDate?: string; // previous_snapshot の取込日(YYYY-MM-DD)。未指定なら最新前日にフォールバック
   roomType?: string; // 泊数分布の部屋タイプ絞り込み（room_type_normalized）。未指定=全室タイプ
+  facilityIds?: string[]; // 総合ダッシュボード(overview)専用: 選択施設SET。未指定=アクティブグループ全施設
 }
 
 // ---- 共通 response 封筒 ----
@@ -404,4 +422,117 @@ export interface BookingCurveResponse extends DashboardResponse<BookingCurveSumm
 }
 export interface AnnualSalesResponse extends DashboardResponse<AnnualSalesSummary, AnnualSalesRow> {
   matrix: AnnualMatrix;
+}
+
+// ---- 総合ダッシュボード（/dashboard, /api/dashboard/overview）----
+// 施設SET×期間で当年・前年同期・予算をまとめて返す。施設ごと(perFacility)と合算(totals)の両方。
+export interface OverviewMetricSet {
+  soldRoomNights: number;
+  sellableRoomNights: number;
+  revenue: number; // taxMode 反映済
+  guestCount: number;
+  occupancyRate: number | null; // sold/sellable
+  adr: number | null; // revenue/sold
+  avgGuestsPerRoom: number | null; // 同伴: guest/sold
+  avgNights: number | null; // 平均泊数（予約粒度・near-exact、予算は null）
+  cancelRate: number | null; // キャンセル率（予約基準, 0..1、予算は null）
+}
+export interface OverviewFacility {
+  facilityId: string;
+  name: string;
+  area: string;
+  displayOrder: number | null;
+  roomsPerDay: number | null; // 1日あたり販売可能室数（施設ヘッダの「客室N室」）
+  current: OverviewMetricSet;
+  previousYear: OverviewMetricSet;
+  budget: OverviewMetricSet | null; // 予算未登録=null
+  // 施設別ウィジェット（この施設だけのデータ）。施設別モードで使用。
+  heatmap: OverviewHeat;
+  nationalities: OverviewNationalities;
+  domesticOverseas: OverviewDomesticOverseas;
+  channels: OverviewChannels;
+  stayNights: OverviewStayNights;
+}
+export interface OverviewHeatCell {
+  date: string; // monthly→YYYY-MM-DD / yearly→YYYY-MM-01
+  soldRoomNights: number;
+  revenue: number;
+}
+export interface OverviewHeat {
+  grain: "day" | "month";
+  current: OverviewHeatCell[];
+  previousYear: OverviewHeatCell[];
+}
+export interface CountrySliceRow {
+  country: string;
+  major: string; // 日本 / 海外 / 不明
+  revenue: number;
+  soldRoomNights: number;
+  share: number | null; // revenue 構成比 0..1
+}
+export interface OverviewNationalities {
+  total: { revenue: number; soldRoomNights: number };
+  top10: CountrySliceRow[]; // 売上降順 上位10（不明は対象外）
+  unknown: CountrySliceRow | null; // 不明（ランキング外）
+  previousYearTop10: CountrySliceRow[];
+}
+export interface DomesticOverseasSplit {
+  label: "日本" | "海外" | "不明";
+  revenue: number;
+  soldRoomNights: number;
+  share: number | null;
+}
+export interface OverviewDomesticOverseas {
+  current: DomesticOverseasSplit[];
+  previousYear: DomesticOverseasSplit[];
+}
+export interface ChannelSliceRow {
+  channel: string;
+  revenue: number;
+  soldRoomNights: number;
+  share: number | null;
+}
+export interface OverviewChannels {
+  total: { revenue: number; soldRoomNights: number };
+  current: ChannelSliceRow[];
+  previousYear: ChannelSliceRow[];
+}
+export interface StayNightBucket {
+  bucket: "1" | "2" | "3_4" | "5_6" | "7_plus";
+  reservations: number;
+  soldRoomNights: number;
+  revenue: number;
+}
+export interface OverviewStayNights {
+  current: StayNightBucket[];
+  previousYear: StayNightBucket[];
+}
+export interface BudgetAchievementFacility {
+  facilityId: string;
+  name: string;
+  revenueActual: number;
+  revenueBudget: number | null;
+  achievementRate: number | null; // actual/budget
+}
+export interface OverviewBudget {
+  hasData: boolean;
+  revenueActual: number;
+  revenueBudget: number | null;
+  achievementRate: number | null;
+  soldRoomNightsActual: number;
+  soldRoomNightsBudget: number | null;
+  perFacility: BudgetAchievementFacility[];
+}
+export interface OverviewResponse {
+  filters: DashboardFilters;
+  scope: { facilityIds: string[]; facilityCount: number };
+  totals: { current: OverviewMetricSet; previousYear: OverviewMetricSet; budget: OverviewMetricSet | null };
+  perFacility: OverviewFacility[]; // display_order 昇順
+  heatmap: OverviewHeat; // 合算（選択施設の日別合計）
+  nationalities: OverviewNationalities; // 合算
+  domesticOverseas: OverviewDomesticOverseas; // 合算
+  channels: OverviewChannels; // 合算
+  stayNights: OverviewStayNights; // 合算（泊数バケット分布）
+  budget: OverviewBudget; // 合算＋施設別達成率
+  generatedAt: string;
 }
