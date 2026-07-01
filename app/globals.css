@@ -123,28 +123,26 @@ table.tbl tbody tr:last-child td { border-bottom: none; }
 
 /* ============================================================
    TOP ダッシュボード ウィジェットグリッド（.tdw-grid / .tdw-2 / .tdw-3）
-   新 Claude Design ローダー（宿泊BIダッシュボード.html）の 6カラム
-   レスポンシブグリッド。.tdw-2=2カラム（KPI=3列）/.tdw-3=3カラム（半幅）。
+   新 Claude Design ローダー（宿泊BIダッシュボード.html）準拠。
+   small(.tdw-2) と medium(.tdw-3) のみ。dense にしない（意図的な余白を保持）。
+   mobile-first: 1 → 2(≥768) → 4(≥1024) → 6(≥1280) カラム。
    ============================================================ */
-.tdw-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 14px;
-  align-items: stretch;
-}
-.tdw-grid > .tdw-2 { grid-column: span 2; }
-.tdw-grid > .tdw-3 { grid-column: span 3; }
-
-/* 中幅: 4カラム（KPI=2列 / 半幅ウィジェットは全幅） */
-@media (max-width: 1180px) {
-  .tdw-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .tdw-grid > .tdw-2 { grid-column: span 2; }
-  .tdw-grid > .tdw-3 { grid-column: span 4; }
-}
-
-/* 狭幅: 2カラム（KPI=1列 / すべて全幅） */
-@media (max-width: 720px) {
+.tdw-grid { display: grid; grid-template-columns: 1fr; gap: 14px; align-items: stretch; }
+.tdw-grid > div { display: flex; min-width: 0; }
+.tdw-grid > div > * { width: 100%; }
+.tdw-2, .tdw-3 { grid-column: span 1; }
+@media (min-width: 768px) {
   .tdw-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .tdw-grid > .tdw-2 { grid-column: span 2; }
-  .tdw-grid > .tdw-3 { grid-column: span 2; }
+  .tdw-2 { grid-column: span 1; }   /* 小=2列の1枠 */
+  .tdw-3 { grid-column: span 2; }   /* 中=全幅 */
+}
+@media (min-width: 1024px) {
+  .tdw-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tdw-2 { grid-column: span 2; }   /* 小=4列で2枚/段 */
+  .tdw-3 { grid-column: span 4; }   /* 中=全幅 */
+}
+@media (min-width: 1280px) {
+  .tdw-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .tdw-2 { grid-column: span 2; }   /* 小=6列で3枚/段 */
+  .tdw-3 { grid-column: span 3; }   /* 中=6列で2枚/段 */
 }

@@ -16,6 +16,7 @@ import { useFilters } from "@/lib/dashboard/use-filters";
 import { useOverview } from "@/lib/dashboard/use-overview";
 import { FacilityPanel } from "@/components/screens/dashboard/facility-panel";
 import { FacilityBoard } from "@/components/screens/dashboard/facility-board";
+import { FacilityNav } from "@/components/screens/dashboard/facility-nav";
 import type { FacilityOption } from "@/app/api/facilities/route";
 
 const facFetcher = (url: string) => fetch(url).then((r) => r.json() as Promise<FacilityOption[]>);
@@ -162,24 +163,32 @@ export default function DashboardOverviewPage() {
           subtitle={`${data.scope.facilityCount}施設`}
         />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 30 }}>
-          {data.perFacility.map((f, idx) => (
-            <FacilityBoard
-              key={f.facilityId}
-              facility={f}
-              heat={data.heatmap}
-              nationalities={data.nationalities}
-              domesticOverseas={data.domesticOverseas}
-              channels={data.channels}
-              stayNights={data.stayNights}
-              budget={data.budget}
-              period={filters.period}
-              year={filters.year}
-              month={filters.month}
-              taxLabel={taxLabel}
-              index={idx}
+        <div style={{ display: "flex", gap: 22, alignItems: "flex-start" }}>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 30 }}>
+            {data.perFacility.map((f, idx) => (
+              <div key={f.facilityId} id={`facility-${f.facilityId}`} style={{ scrollMarginTop: 120 }}>
+                <FacilityBoard
+                  facility={f}
+                  heat={data.heatmap}
+                  nationalities={data.nationalities}
+                  domesticOverseas={data.domesticOverseas}
+                  channels={data.channels}
+                  stayNights={data.stayNights}
+                  budget={data.budget}
+                  period={filters.period}
+                  year={filters.year}
+                  month={filters.month}
+                  taxLabel={taxLabel}
+                  index={idx}
+                />
+              </div>
+            ))}
+          </div>
+          {data.perFacility.length >= 2 && (
+            <FacilityNav
+              facilities={data.perFacility.map((f) => ({ id: f.facilityId, name: f.name, area: f.area }))}
             />
-          ))}
+          )}
         </div>
       )}
     </div>
