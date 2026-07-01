@@ -107,24 +107,29 @@ export function FacilityBoard({
   const kpis = set ? buildTopKpis(set, periodLabel) : [];
 
   const perFacility = facility != null;
-  // 施設別モードでは共有ウィジェットは「選択施設の合算」を表示する。
-  const sharedNote = perFacility ? "選択施設の合算" : undefined;
+  // 施設別モード=施設固有データ / 合算モード=top-level 合算データ。施設別化により注記は無し。
+  const heatSrc = facility ? facility.heatmap : heat;
+  const natSrc = facility ? facility.nationalities : nationalities;
+  const doSrc = facility ? facility.domesticOverseas : domesticOverseas;
+  const chSrc = facility ? facility.channels : channels;
+  const stSrc = facility ? facility.stayNights : stayNights;
+  const sharedNote: string | undefined = undefined;
 
   const gaugeBudget = facility ? deriveFacilityBudget(facility, budget) : budget;
 
-  const doSlices: CompositionSlice[] = domesticOverseas.current.map((s) => ({
+  const doSlices: CompositionSlice[] = doSrc.current.map((s) => ({
     label: s.label,
     revenue: s.revenue,
     soldRoomNights: s.soldRoomNights,
     share: s.share,
   }));
-  const chSlices: CompositionSlice[] = channels.current.map((s) => ({
+  const chSlices: CompositionSlice[] = chSrc.current.map((s) => ({
     label: s.channel,
     revenue: s.revenue,
     soldRoomNights: s.soldRoomNights,
     share: s.share,
   }));
-  const stSlices: CompositionSlice[] = stayNights.current.map((s) => ({
+  const stSlices: CompositionSlice[] = stSrc.current.map((s) => ({
     label: STAY_LABELS[s.bucket] ?? s.bucket,
     revenue: s.revenue,
     soldRoomNights: s.soldRoomNights,
@@ -223,7 +228,7 @@ export function FacilityBoard({
         {/* カレンダービュー — 3マス */}
         <div className="tdw-3">
           <CalendarHeatmap
-            heat={heat}
+            heat={heatSrc}
             period={period}
             year={year}
             month={month}
@@ -234,7 +239,7 @@ export function FacilityBoard({
 
         {/* 国籍別分析 TOP10 — 3マス */}
         <div className="tdw-3">
-          <NationalityTop10 nat={nationalities} taxLabel={taxLabel} subnote={sharedNote} />
+          <NationalityTop10 nat={natSrc} taxLabel={taxLabel} subnote={sharedNote} />
         </div>
 
         {/* 予算達成率 — 2マス（予算なしは非表示し、下部に注記） */}

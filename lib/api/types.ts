@@ -446,6 +446,12 @@ export interface OverviewFacility {
   current: OverviewMetricSet;
   previousYear: OverviewMetricSet;
   budget: OverviewMetricSet | null; // 予算未登録=null
+  // 施設別ウィジェット（この施設だけのデータ）。施設別モードで使用。
+  heatmap: OverviewHeat;
+  nationalities: OverviewNationalities;
+  domesticOverseas: OverviewDomesticOverseas;
+  channels: OverviewChannels;
+  stayNights: OverviewStayNights;
 }
 export interface OverviewHeatCell {
   date: string; // monthly→YYYY-MM-DD / yearly→YYYY-MM-01
