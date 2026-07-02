@@ -13,13 +13,20 @@
 
 import { Icon } from "@/components/ui/icon";
 import { Badge } from "@/components/ui/primitives";
-import { TopKpiCard, buildTopKpis, type MetricTriple } from "./top-kpi-card";
+import { TopKpiCard, buildTopKpis, type MetricTriple, type TopKpiDescriptor } from "./top-kpi-card";
 import { CalendarHeatmap } from "./calendar-heatmap";
 import { NationalityTop10 } from "./nationality-top10";
 import { CompositionDonut, type CompositionSlice } from "./composition-donut";
 import { BudgetGauge } from "./budget-gauge";
 import { TOP_PAL } from "./top-shared";
 import { integer } from "@/lib/dashboard/format";
+import {
+  tdwItemsToRows,
+  tdwDefaultLayout,
+  TDW_WIDGETS,
+  type WidgetId,
+  type WidgetLayoutItem,
+} from "@/lib/dashboard/widget-layout";
 import type {
   OverviewBudget,
   OverviewChannels,
@@ -62,6 +69,10 @@ export interface FacilityBoardProps {
   subtitle?: string;
   /** 施設別ボードの連番（見出しアバター）。 */
   index?: number;
+  /** ユーザー保存済みのウィジェット並び順（未指定なら初期レイアウト）。 */
+  layout?: WidgetLayoutItem[];
+  /** モバイル幅では見出しを縮小（screens-top.jsx 準拠: h2 20/25, avatar 40/46, icon 20/23）。 */
+  isMobile?: boolean;
 }
 
 /** 施設別ボード用に、合算予算から該当施設の達成率を取り出した OverviewBudget を作る。 */
@@ -98,6 +109,8 @@ export function FacilityBoard({
   title,
   subtitle,
   index,
+  layout,
+  isMobile = false,
 }: FacilityBoardProps) {
   const set: MetricTriple | null = facility
     ? { current: facility.current, previousYear: facility.previousYear, budget: facility.budget }
@@ -149,8 +162,8 @@ export function FacilityBoard({
     >
       <span
         style={{
-          width: 46,
-          height: 46,
+          width: isMobile ? 40 : 46,
+          height: isMobile ? 40 : 46,
           borderRadius: "var(--r-md)",
           background: "var(--surface-3)",
           display: "grid",
@@ -164,12 +177,12 @@ export function FacilityBoard({
         {perFacility && index != null ? (
           <span className="tabular">{index + 1}</span>
         ) : (
-          <Icon name={perFacility ? "Building2" : "LayoutGrid"} size={23} style={{ color: "var(--text)" }} />
+          <Icon name={perFacility ? "Building2" : "LayoutGrid"} size={isMobile ? 20 : 23} style={{ color: "var(--text)" }} />
         )}
       </span>
       <div style={{ minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.12 }}>
+          <h2 style={{ margin: 0, fontSize: isMobile ? 20 : 25, fontWeight: 800, letterSpacing: "-.02em", lineHeight: 1.12 }}>
             {facility ? facility.name : title ?? "全施設合算"}
           </h2>
           {facility?.area && <Badge tone="neutral">{facility.area}</Badge>}
@@ -213,44 +226,27 @@ export function FacilityBoard({
     </div>
   );
 
-  return (
-    <section style={{ display: "flex", flexDirection: "column" }}>
-      {heading}
+  /* ---------- ウィジェット描画（id → カード）。保存レイアウトの並び順で配置 ---------- */
+  const kpiById: Record<string, TopKpiDescriptor> = {};
+  kpis.forEach((k) => {
+    kpiById[k.id] = k;
+  });
+  const KPI_IDS = new Set<WidgetId>(["revenue", "soldRoomNights", "adr", "avgGuests", "avgNights", "cancelRate"]);
 
-      <div className="tdw-grid">
-        {/* KPI ×6 — 各2マス */}
-        {kpis.map((k) => (
-          <div key={k.id} className="tdw-2">
-            <TopKpiCard k={k} />
-          </div>
-        ))}
-
-        {/* カレンダービュー — 3マス */}
-        <div className="tdw-3">
-          <CalendarHeatmap
-            heat={heatSrc}
-            period={period}
-            year={year}
-            month={month}
-            taxLabel={taxLabel}
-            subnote={sharedNote}
-          />
-        </div>
-
-        {/* 国籍別分析 TOP10 — 3マス */}
-        <div className="tdw-3">
-          <NationalityTop10 nat={natSrc} taxLabel={taxLabel} subnote={sharedNote} />
-        </div>
-
-        {/* 予算達成率 — 2マス（予算なしは非表示し、下部に注記） */}
-        {gaugeBudget.hasData && (
-          <div className="tdw-2">
-            <BudgetGauge budget={gaugeBudget} taxLabel={taxLabel} />
-          </div>
-        )}
-
-        {/* 国内・海外比率 — 2マス */}
-        <div className="tdw-2">
+  const renderWidget = (id: WidgetId) => {
+    if (KPI_IDS.has(id)) {
+      const k = kpiById[id];
+      return k ? <TopKpiCard k={k} /> : null;
+    }
+    switch (id) {
+      case "calendar":
+        return <CalendarHeatmap heat={heatSrc} period={period} year={year} month={month} taxLabel={taxLabel} subnote={sharedNote} />;
+      case "nationalityTopTen":
+        return <NationalityTop10 nat={natSrc} taxLabel={taxLabel} subnote={sharedNote} />;
+      case "budgetAchievement":
+        return <BudgetGauge budget={gaugeBudget} taxLabel={taxLabel} />;
+      case "domesticInternationalRatio":
+        return (
           <CompositionDonut
             title="国内・海外比率"
             slices={doSlices}
@@ -261,10 +257,9 @@ export function FacilityBoard({
             subnote={sharedNote}
             emptyIcon="Globe"
           />
-        </div>
-
-        {/* 経路別分析 — 2マス */}
-        <div className="tdw-2">
+        );
+      case "channelShare":
+        return (
           <CompositionDonut
             title="経路別分析"
             slices={chSlices}
@@ -273,10 +268,9 @@ export function FacilityBoard({
             subnote={sharedNote}
             emptyIcon="Route"
           />
-        </div>
-
-        {/* 泊数別（室数） — 2マス（室数固定・税表示の影響なし） */}
-        <div className="tdw-2">
+        );
+      case "stayNightsDistribution":
+        return (
           <CompositionDonut
             title="泊数別（室数）"
             slices={stSlices}
@@ -288,7 +282,42 @@ export function FacilityBoard({
             subnote={sharedNote}
             emptyIcon="Moon"
           />
-        </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  // 予算達成率は予算未登録の施設ではシステム側で自動非表示（ユーザー非表示とは別）
+  const availableOnBoard = (id: WidgetId) => (id === "budgetAchievement" ? gaugeBudget.hasData : true);
+
+  // 保存済みレイアウトを row-aware に展開。行内は利用可能なものだけ左詰め、
+  // 利用不可で空になった行は詰めて連番の gridRow を割り当てる。narrow は CSS 側で order フロー。
+  const layoutRows = tdwItemsToRows(layout && layout.length ? layout : tdwDefaultLayout()).rows;
+  const cells: { id: WidgetId; col: number; span: number; gr: number }[] = [];
+  let gr = 0;
+  layoutRows.forEach((rowIds) => {
+    const avail = rowIds.filter(availableOnBoard);
+    if (!avail.length) return;
+    gr++;
+    let col = 1;
+    avail.forEach((id) => {
+      const span = TDW_WIDGETS[id].span;
+      cells.push({ id, col, span, gr });
+      col += span;
+    });
+  });
+
+  return (
+    <section style={{ display: "flex", flexDirection: "column" }}>
+      {heading}
+
+      <div className="tdw-board">
+        {cells.map((c) => (
+          <div key={c.id} className={"cell s" + c.span} style={{ gridColumn: `${c.col} / span ${c.span}`, gridRow: c.gr }}>
+            {renderWidget(c.id)}
+          </div>
+        ))}
       </div>
 
       {!gaugeBudget.hasData && (

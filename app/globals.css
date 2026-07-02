@@ -146,3 +146,23 @@ table.tbl tbody tr:last-child td { border-bottom: none; }
   .tdw-2 { grid-column: span 2; }   /* 小=6列で3枚/段 */
   .tdw-3 { grid-column: span 3; }   /* 中=6列で2枚/段 */
 }
+
+/* ============================================================
+   TOP ダッシュボード 6マス・行対応グリッド（.tdw-board / .cell）
+   宿泊BIダッシュボード.html 準拠。colStart/span/row は各セルの inline style
+   （Row-aware・ユーザー保存レイアウト）。
+   ≥1200px は行・スロットを厳密表示（意図的な余白＝空きスロットを保持）。
+   narrow は order ベースの自動フロー（4/1列）にフォールバック。
+   ============================================================ */
+.tdw-board { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+.tdw-board > .cell { display: flex; min-width: 0; }
+.tdw-board > .cell > * { width: 100%; }
+@media (max-width: 1199px) {
+  .tdw-board { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tdw-board > .cell { grid-column: auto / span 2 !important; grid-row: auto !important; }
+  .tdw-board > .cell.s3 { grid-column: auto / span 4 !important; }
+}
+@media (max-width: 767px) {
+  .tdw-board { grid-template-columns: 1fr; }
+  .tdw-board > .cell, .tdw-board > .cell.s3 { grid-column: 1 / -1 !important; }
+}
